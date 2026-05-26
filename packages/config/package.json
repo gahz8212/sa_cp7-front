@@ -1,0 +1,14 @@
+{
+  "name": "@cp7/config",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./tsconfig": "./tsconfig/base.json",
+    "./eslint/next.mjs": "./eslint/next.mjs"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.2.2",
+    "eslint-config-prettier": "^10.1.8"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@cp7/ui",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "peerDependencies": {
+    "next": ">=16",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.0.0",
+    "@tiptap/extension-character-count": "^3.22.5",
+    "@tiptap/extension-color": "^3.22.5",
+    "@tiptap/extension-highlight": "^3.22.5",
+    "@tiptap/extension-image": "^3.22.5",
+    "@tiptap/extension-link": "^3.22.5",
+    "@tiptap/extension-placeholder": "^3.22.5",
+    "@tiptap/extension-table": "^3.22.5",
+    "@tiptap/extension-text-align": "^3.22.5",
+    "@tiptap/extension-text-style": "^3.22.5",
+    "@tiptap/extension-typography": "^3.22.5",
+    "@tiptap/extension-underline": "^3.22.5",
+    "@tiptap/react": "^3.22.5",
+    "@tiptap/starter-kit": "^3.22.5",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
+    "date-fns": "^4.1.0",
+    "imask": "^7.6.0",
+    "react-day-picker": "^9.0.0",
+    "react-imask": "^7.6.0",
+    "tailwind-merge": "^2.0.0"
+  },
+  "scripts": {
+    "lint": "eslint"
+  },
+  "devDependencies": {
+    "@cp7/config": "*",
+    "@types/react": "^19",
+    "eslint": "^9",
+    "typescript": "^5"
+  }
+}

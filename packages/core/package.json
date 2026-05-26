@@ -1,0 +1,36 @@
+{
+  "name": "@cp7/core",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.96.1",
+    "@tanstack/react-query-devtools": "^5.96.1",
+    "axios": "^1.9.0",
+    "html-to-image": "^1.11.13",
+    "i18next": "^26.0.3",
+    "jspdf": "^4.2.1",
+    "react-i18next": "^17.0.2",
+    "react-to-print": "^3.3.0",
+    "zustand": "^5.0.12"
+  },
+  "scripts": {
+    "lint": "eslint"
+  },
+  "devDependencies": {
+    "@cp7/config": "*",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "typescript": "^5"
+  }
+}
