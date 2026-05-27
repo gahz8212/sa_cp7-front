@@ -8,7 +8,7 @@ import { useLocaleStore, usePopup, SessionTimerProvider } from "@cp7/core"
 import { useTranslation } from "react-i18next"
 import { refreshToken, logout } from "@/common/api/apiClient"
 
-const SESSION_TIMEOUT = Number(process.env.NEXT_PUBLIC_SESSION_TIMEOUT) || 60 * 60 * 1000
+const SESSION_TIMEOUT = Number(process.env.NEXT_PUBLIC_SESSION_TIMEOUT) || 60 * 60 * 1000 // 1시간
 
 // TODO :: AuthProvider 구현필요
 export function AuthProvider({ children }: { children: ReactNode }) {

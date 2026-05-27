@@ -188,21 +188,32 @@ export const PopupProvider = ({ children, alertRenderer }: PopupProviderProps) =
     })
   }
 
+  const contextValue = useMemo(() => ({
+    showErrorOnlyText,
+    showErrorSingleButton,
+    showErrorDoubleButton,
+    showSuccessOnlyText,
+    showSuccessSingleButton,
+    showSuccessDoubleButton,
+    showSuccessBgOnlyText,
+    showSuccessBgSingleButton,
+    showSuccessBgDoubleButton,
+    showToast,
+  }), [
+    showErrorOnlyText,
+    showErrorSingleButton,
+    showErrorDoubleButton,
+    showSuccessOnlyText,
+    showSuccessSingleButton,
+    showSuccessDoubleButton,
+    showSuccessBgOnlyText,
+    showSuccessBgSingleButton,
+    showSuccessBgDoubleButton,
+    showToast,
+  ])
+
   return (
-    <PopupContext.Provider
-      value={{
-        showErrorOnlyText,
-        showErrorSingleButton,
-        showErrorDoubleButton,
-        showSuccessOnlyText,
-        showSuccessSingleButton,
-        showSuccessDoubleButton,
-        showSuccessBgOnlyText,
-        showSuccessBgSingleButton,
-        showSuccessBgDoubleButton,
-        showToast,
-      }}
-    >
+    <PopupContext.Provider value={contextValue}>
       {isPopupOpen && popup && alertRenderer({
         title: popup.title,
         message: popup.message,
