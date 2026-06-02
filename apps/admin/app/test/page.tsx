@@ -51,6 +51,13 @@ const TEST_PAGES: TestPage[] = [
     description: "프린트 및 PDF 다운로드 훅 동작 검증",
     items: ["usePrint (인쇄 다이얼로그)", "usePdfDownload (html2canvas → PDF 저장)"],
   },
+  {
+    href: "/test/excel-upload",
+    title: "Excel / Upload / 검증",
+    category: "UI Kit",
+    description: "엑셀파일 업로드 동작 검증",
+    items: ["백엔드 실행 필요"],
+  },
 ]
 
 const CATEGORY_COLORS: Record<string, string> = {
