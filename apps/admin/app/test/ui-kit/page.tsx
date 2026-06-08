@@ -93,6 +93,10 @@ export default function UiKitPage() {
         <Row label="disabled">
           <Input disabled placeholder="Disabled input" className="w-48" />
         </Row>
+        <Row label="autoWidth">
+          <Input autoWidth placeholder="Auto width..." defaultValue="Narrow" />
+          <Input autoWidth defaultValue="This input expands based on its content length" />
+        </Row>
       </SECTION>
 
       <Divider />

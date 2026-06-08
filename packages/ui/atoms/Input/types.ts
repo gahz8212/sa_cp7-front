@@ -6,4 +6,5 @@ export type InputStatus = 'default' | 'error' | 'success'
 export type InputProps = Omit<React.ComponentPropsWithoutRef<'input'>, 'size'> & {
   size?: InputSize
   status?: InputStatus
+  autoWidth?: boolean
 }
