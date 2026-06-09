@@ -26,8 +26,12 @@ export default function ExcelUploadTestPage() {
   const [selectedHeaderRows, setSelectedHeaderRows] = useState<number[]>([])
   const [selectedSampleRows, setSelectedSampleRows] = useState<number[]>([])
   const [selectedEtcRows, setSelectedEtcRows] = useState<number[]>([])
+  const headerBaseRowRef = useRef<number>(0);
+  const sampleBaseRowRef = useRef<number>(0);
+  const etcBaseRowRef = useRef<number>(0);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
       setFile(selectedFile)
@@ -111,24 +115,32 @@ export default function ExcelUploadTestPage() {
   }
 
   const handleRowClick = (rowIndex: number) => {
+
     if (mode === "HEADER") {
-      setSelectedHeaderRows((prev) =>
-        prev.includes(rowIndex)
+      setSelectedHeaderRows((prev) => {
+        const next = prev.includes(rowIndex)
           ? prev.filter((r) => r !== rowIndex)
-          : [...prev, rowIndex].sort((a, b) => a - b),
-      )
+          : [...prev, rowIndex].sort((a, b) => a - b);
+        if (next.length > 0) headerBaseRowRef.current = next[0];
+
+        return next;
+      });
     } else if (mode === "DATA") {
-      setSelectedSampleRows((prev) =>
-        prev.includes(rowIndex)
+      setSelectedSampleRows((prev) => {
+        const next = prev.includes(rowIndex)
           ? prev.filter((r) => r !== rowIndex)
-          : [...prev, rowIndex].sort((a, b) => a - b),
-      )
+          : [...prev, rowIndex].sort((a, b) => a - b);
+        if (next.length > 0) sampleBaseRowRef.current = next[0];
+        return next;
+      });
     } else if (mode === "ETC") {
-      setSelectedEtcRows((prev) =>
-        prev.includes(rowIndex)
+      setSelectedEtcRows((prev) => {
+        const next = prev.includes(rowIndex)
           ? prev.filter((r) => r !== rowIndex)
-          : [...prev, rowIndex].sort((a, b) => a - b),
-      )
+          : [...prev, rowIndex].sort((a, b) => a - b);
+        if (next.length > 0) etcBaseRowRef.current = next[0];
+        return next;
+      });
     }
   }
 
@@ -148,13 +160,13 @@ export default function ExcelUploadTestPage() {
       return
     }
 
-    const buildStructure = (rows: any[]) => {
+    const buildStructure = (rows: any[], isHeader: boolean = false) => {
       if (rows.length === 0) return []
       const colCount = rows[0].length
       const result = []
       for (let col = 0; col < colCount; col++) {
-        const colValues = rows.map((row) => {
-          const val = row[col]
+        const colValues = rows.map((row, rowIndex) => {
+          let val = row[col]
           return val === undefined || val === null ? "" : String(val).trim()
         })
         result.push(colValues)
@@ -162,21 +174,146 @@ export default function ExcelUploadTestPage() {
       return result
     }
 
+    const headersMatrix = buildStructure(headerRows, true);
+    const dataMatrix = buildStructure(sampleRows, false);
+    const etcMatrix = buildStructure(etcRows, false);
+
+
+
+    // 추가: 구조 변환 및 콘솔 출력
+    const getStructuredData = (matrix: string[][], startRow: number) => {
+      const colCount = matrix.length;
+      const rowCount = matrix[0]?.length || 0;
+      const results: any[] = [];
+      for (let c = 0; c < colCount; c++) {
+        for (let r = 0; r < rowCount; r++) {
+          const value = matrix[c][r];
+          if (value !== '' && value !== null) {
+            results.push({ value: value.trim(), row: r + startRow, col: c });
+          }
+        }
+      }
+      return results;
+    };
+
+    const getStructuredType = (matrix: string[][], startRow: number) => {
+      const colCount = matrix.length;
+      const rowCount = matrix[0]?.length || 0;
+      const cellMap = new Map<string, any>();
+
+      const getDataTypeAndPattern = (val: string) => {
+        let type = 'string';
+        let pattern = undefined;
+        if (/^\d+.?\d*$/.test(val)) {
+          type = 'number';
+        } else if (/^\d{3}-\d{3,4}-\d{4}$/.test(val)) {
+          type = 'phone';
+          pattern = '^\\d{3}-\\d{3,4}-\\d{4}$';
+        } else if (/^\d{3}-\d{2}-\d{5}$/.test(val)) {
+          type = 'biz-number';
+          pattern = '^\\d{3}-\\d{2}-\\d{5}$';
+        }
+        // else if (/[!@#$%^&*(),.?":{}|<>]/.test(val)) {
+        //   type = 'text';
+        //   pattern = '.*[!@#$%^&*(),.?":{}|<>].*';
+        // }
+        return { type, pattern };
+      };
+
+      for (let c = 0; c < colCount; c++) {
+        for (let r = 0; r < rowCount; r++) {
+          const val = matrix[c][r];
+          if (cellMap.has(`${c},${r}`)) continue;
+          if (val !== '') {
+            const { type, pattern } = getDataTypeAndPattern(val);
+            const cell: any = { type, row: r, col: c };
+            if (pattern) cell.pattern = pattern;
+            let rowSpan = 1;
+            for (let j = r + 1; j < rowCount; j++) {
+              if (matrix[c][j] === '') { rowSpan++; cellMap.set(`${c},${j}`, { type: '', row: j + startRow, col: c }); } else break;
+            }
+            if (rowSpan > 1) cell.rowspan = rowSpan;
+            let colSpan = 1;
+            for (let i = c + 1; i < colCount; i++) {
+              if (matrix[i][r] === '') { colSpan++; cellMap.set(`${i},${r}`, { type: '', row: r + startRow, col: i }); } else break;
+            }
+            if (colSpan > 1) cell.colspan = colSpan;
+            cellMap.set(`${c},${r}`, cell);
+          }
+        }
+      }
+      return Array.from(cellMap.values()).filter(cell => cell.type !== '');
+    };
+
+    function mergeHeaderAndType(headers: any[], types: any[]) {
+      const diff = headers.length - types.length;
+
+      return headers.map((header, index) => {
+        // 1. value -> column 키 변경 및 기본 객체 생성
+        const { value, ...rest } = header;
+        const merged = { column: value, ...rest };
+
+        // 2. 1:1 매핑된 타입 정보 가져오기
+        // 헤더 배열이 더 길 경우, 끝에서부터 차이만큼 row 보정
+        let typeInfo;
+        if (diff > 0 && index >= types.length) {
+          // 예: headers.length=9, types.length=6, diff=3. index 6,7,8은보정 대상
+          // 원래 headers는 정렬되어 있으므로, 보정 로직 적용
+          typeInfo = types[index - diff];
+          merged.row = typeInfo.row;
+        } else {
+          typeInfo = types[index];
+        }
+
+        // 3. 타입 정보 병합
+        if (typeInfo) {
+          merged.type = typeInfo.type;
+          if (typeInfo.pattern) merged.pattern = typeInfo.pattern;
+        } else {
+          merged.type = 'string';
+        }
+
+        return merged;
+      });
+    }
+
+    console.log("헤더 행 데이터:", getStructuredData(buildStructure(headerRows), headerBaseRowRef.current).sort((a, b) => a.row - b.row || a.col - b.col))
+    console.log("데이터 행 데이터:", getStructuredData(buildStructure(sampleRows), sampleBaseRowRef.current).sort((a, b) => a.row - b.row || a.col - b.col))
+
+    console.log("변환된 구조 타입 데이터:",
+      mergeHeaderAndType(getStructuredData(buildStructure(headerRows), headerBaseRowRef.current).sort((a, b) => a.row - b.row || a.col - b.col),
+        getStructuredType(buildStructure(sampleRows), sampleBaseRowRef.current).sort((a, b) => a.row - b.row || a.col - b.col)));
+
+    // 데이터 시작 행 인덱스 계산
+    const headerStartRow = selectedHeaderRows[0] || 0;
+    const dataStartRow = selectedSampleRows[0] || 0;
+    const etcStartRow = selectedEtcRows[0] || 0;
+
+    // 구조 해석 및 타입 분석 (각 영역별 ref 전달)
+    const structuredHeaders = getStructuredData(headersMatrix, headerBaseRowRef.current);
+    const structuredData = getStructuredType(dataMatrix, sampleBaseRowRef.current);
+
+    // 최종 스키마 병합
+    const schema = mergeHeaderAndType(structuredHeaders, structuredData);
+
+    console.log("최종 구조 스키마:", schema);
+
     setMappingResult({
-      flattenedHeaders: buildStructure(headerRows),
-      flattenedData: buildStructure(sampleRows),
-      flattenedEtc: buildStructure(etcRows),
+      flattenedHeaders: getStructuredData(headersMatrix, headerBaseRowRef.current),
+      flattenedData: getStructuredData(dataMatrix, sampleBaseRowRef.current),
+      flattenedEtc: getStructuredData(etcMatrix, etcBaseRowRef.current),
     })
-    console.log("Mapping Result:", {
-      flattenedHeaders: buildStructure(headerRows),
-      flattenedData: buildStructure(sampleRows),
-      flattenedEtc: buildStructure(etcRows),
-    })
-    axios.post("/api/common/analyze-excel-structure", {
-      flattenedHeaders: buildStructure(headerRows), // Array(6)
-      flattenedData: buildStructure(sampleRows),    // Array(6)
-      flattenedEtc: buildStructure(etcRows),        // Array(0)
-    })
+
+    console.log(
+      'filename', fileInfo?.name,
+    )
+
+    // axios.post("/api/common/analyze-excel-structure", {
+    //   fileName: fileInfo?.name,
+    //   flattenedHeaders: getStructuredData(buildStructure(headerRows)), // Array(6)
+    //   flattenedData: getStructuredData(buildStructure(sampleRows)),    // Array(6)
+    //   flattenedEtc: getStructuredData(buildStructure(etcRows)),        // Array(0)
+    // })
     setMode(null)
   }
 
@@ -205,6 +342,42 @@ export default function ExcelUploadTestPage() {
   }, [allData, page])
 
   const totalPages = Math.ceil(totalCount / pageSize)
+
+  // 타입 검증 헬퍼
+  const isValidType = (value: string, type: string) => {
+    if (value === '') return true;
+    if (type === 'number') return /^\d+$/.test(value);
+    if (type === 'phone') return /^\d{3}-\d{3,4}-\d{4}$/.test(value);
+    if (type === 'biz-number') return /^\d{3}-\d{2}-\d{5}$/.test(value);
+    return true;
+  };
+
+  // 데이터 행 검증 및 매핑 함수
+  const validateAndMapRow = (rawDataRow: string[], schema: any[], rowIndex: number = 2) => {
+    const mappedData: any = {};
+    const errors: string[] = [];
+
+    schema.forEach(field => {
+      // 실제 좌표 계산: field.row는 상대적 위치, rowIndex는 데이터 순서
+      const actualExcelRow = field.row + rowIndex + 1;
+      const cellValue = rawDataRow[field.col];
+
+      // 타입 검증
+      if (!isValidType(String(cellValue), field.type)) {
+        errors.push(`${actualExcelRow}행 ${field.col + 1}열 ('${field.column}'): 타입 오류 (기대: ${field.type})`);
+      }
+
+      // 데이터 매핑
+      mappedData[field.column] = cellValue;
+    });
+
+    return { mappedData, errors };
+  };
+
+  const isValidCell = (value: string, field: any) => {
+    if (!field || !field.type) return true;
+    return isValidType(value, field.type);
+  };
 
   const renderTable = () => {
     if (allData.length === 0) {
@@ -240,22 +413,34 @@ export default function ExcelUploadTestPage() {
                 return (
                   <tr
                     key={rowIndex}
-                    onClick={() => handleRowClick(rowIndex)}
+
                     className={`cursor-pointer ${isHeader ? "bg-yellow-200" : isData ? "bg-green-200" : isEtc ? "bg-blue-200" : "hover:bg-gray-50"}`}
                   >
-                    <td className="border-2 p-2 text-xs text-gray-400 bg-gray-50 w-12 text-center border-gray-800 whitespace-nowrap">
+                    <td
+                      onClick={() => handleRowClick(rowIndex)}
+                      className="border-2 p-2 text-xs text-gray-400 bg-gray-50 w-12 text-center border-gray-800 whitespace-nowrap">
                       {rowIndex + 1}
                     </td>
-                    {rowValues.map((cell, colIndex) => (
-                      <td key={colIndex} className="border-2 text-sm text-center border-gray-800 whitespace-nowrap w-12">
-                        <Input
-                          autoWidth
-                          className="w-full bg-transparent text-center outline-none"
-                          value={String(cell || '')}
-                          onChange={(e) => handleCellEdit(rowIndex, colIndex, e.target.value)}
-                        />
-                      </td>
-                    ))}
+                    {rowValues.map((cell, colIndex) => {
+                      const fieldSchema = mappingResult?.flattenedData?.find(
+                        (f: any) => f.row === localIndex && f.col === colIndex
+                      );
+                      const isInvalid = !isValidCell(String(cell), fieldSchema);
+
+                      return (
+                        <td
+                          key={colIndex}
+                          className={`border-2 text-sm text-center border-gray-800 whitespace-nowrap w-12 ${isInvalid ? 'border-red-500 bg-red-100' : ''}`}>
+                          <Input
+                            autoWidth
+                            className="w-full bg-transparent text-center outline-none"
+                            value={String(cell || '')}
+                            onChange={(e) => handleCellEdit(rowIndex, colIndex, e.target.value)}
+                          />
+                        </td>
+                      )
+                    })}
+
                   </tr>
                 )
               })}
