@@ -77,7 +77,27 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const response = await axios.post("/api/common/upload-excel", formData)
 
       if (response.data) {
-        const newRows = response.data.dataList || response.data.data?.dataList || []
+        const rawRows = response.data.dataList || response.data.data?.dataList || []
+        // 숫자 뒤에 .0이 붙는 경우(예: 2.0) 이를 제거하여 정수 형태로 정규화
+        const sanitize = (val: any): any => {
+          if (typeof val === "string" && /^\d+\.0$/.test(val)) {
+            return val.replace(/\.0$/, "")
+          }
+          return val
+        }
+
+        const newRows = rawRows.map((row: any) => {
+          const sanitizedRow = { ...row }
+          Object.keys(sanitizedRow).forEach((key) => {
+            if (Array.isArray(sanitizedRow[key])) {
+              sanitizedRow[key] = sanitizedRow[key].map(sanitize)
+            } else {
+              sanitizedRow[key] = sanitize(sanitizedRow[key])
+            }
+          })
+          return sanitizedRow
+        })
+
         setAllData((prev) => [...prev, ...newRows])
         setAllOriginalData((prev) => [...prev, ...JSON.parse(JSON.stringify(newRows))]) // Store deep copy
         setTotalCount(response.data.totalCount || response.data.data?.totalCount || 0)
@@ -214,11 +234,31 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const colCount = matrix.length
       const rowCount = matrix[0]?.length || 0
       const results: any[] = []
+      const visited = new Set<string>()
+
       for (let c = 0; c < colCount; c++) {
         for (let r = 0; r < rowCount; r++) {
+          if (visited.has(`${c},${r}`)) continue
           const value = matrix[c][r]
           if (value !== "" && value !== null) {
-            results.push({ value: value.trim(), row: r + startRow, col: c })
+            const cell: any = { value: value.trim(), row: r + startRow, col: c }
+            let rowSpan = 1
+            for (let j = r + 1; j < rowCount; j++) {
+              if (matrix[c][j] === "") {
+                rowSpan++
+                visited.add(`${c},${j}`)
+              } else break
+            }
+            if (rowSpan > 1) cell.rowspan = rowSpan
+            let colSpan = 1
+            for (let i = c + 1; i < colCount; i++) {
+              if (matrix[i][r] === "") {
+                colSpan++
+                visited.add(`${i},${r}`)
+              } else break
+            }
+            if (colSpan > 1) cell.colspan = colSpan
+            results.push(cell)
           }
         }
       }
@@ -233,7 +273,7 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const getDataTypeAndPattern = (val: string) => {
         let type = "string"
         let pattern = undefined
-        if (/^\d+.?\d*$/.test(val)) {
+        if (/^\d+(\.\d+)?$/.test(val)) {
           type = "number"
         } else if (/^\d{3}-\d{3,4}-\d{4}$/.test(val)) {
           type = "phone"
@@ -255,7 +295,7 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
           if (cellMap.has(`${c},${r}`)) continue
           if (val !== "") {
             const { type, pattern } = getDataTypeAndPattern(val)
-            const cell: any = { type, row: r, col: c }
+            const cell: any = { type, row: r + startRow, col: c }
             if (pattern) cell.pattern = pattern
             let rowSpan = 1
             for (let j = r + 1; j < rowCount; j++) {
@@ -284,11 +324,7 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const diff = headers.length - types.length
 
       return headers.map((header, index) => {
-        // 1. value -> column 키 변경 및 기본 객체 생성
-        const { value, ...rest } = header
-        const merged: any = { column: value, ...rest, row: sampleBaseRowRef.current }
-
-        // 2. 1:1 매핑된 타입 정보 가져오기
+        // 1. 1:1 매핑된 타입 정보 가져오기
         let typeInfo
         if (diff > 0 && index >= types.length) {
           typeInfo = types[index - diff]
@@ -296,10 +332,20 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
           typeInfo = types[index]
         }
 
+        // 2. value -> column 키 변경 및 객체 생성 (데이터 행의 실제 row 값 사용)
+        const { value, ...rest } = header
+        const merged: any = { 
+          column: value, 
+          ...rest, 
+          row: typeInfo?.row ?? sampleBaseRowRef.current 
+        }
+
         // 3. 타입 정보 병합
         if (typeInfo) {
           merged.type = typeInfo.type
           if (typeInfo.pattern) merged.pattern = typeInfo.pattern
+          if (typeInfo.rowspan) merged.rowspan = typeInfo.rowspan
+          if (typeInfo.colspan) merged.colspan = typeInfo.colspan
         } else {
           merged.type = "string"
         }
@@ -307,39 +353,47 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         return merged
       })
     }
-
-    const structuredHeaders = getStructuredData(headersMatrix, headerBaseRowRef.current).filter(
+    // 필터링 전 (오리진) 헤더 행 데이터 -- 전체 헤더 포함
+    const structuredHeaders = getStructuredData(headersMatrix, headerBaseRowRef.current)
+    // 필터링 후 헤더 행 데이터 -- 미사용 헤더 제거
+    const filteredStructuredHeaders = structuredHeaders.filter(
       (h) => !selectedHeaders.includes(h.value),
     )
     const structuredData = getStructuredData(dataMatrix, sampleBaseRowRef.current)
-
-    console.log("헤더 행 데이터 (필터링됨):", structuredHeaders)
-    console.log("데이터 행 데이터:", structuredData)
-
-    console.log(
-      "변환된 구조 타입 데이터 (필터링됨):",
-      mergeHeaderAndType(
-        [...structuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
+    //변형된 구조 타입 데이터 (헤더 기반 필터링 적용)
+    const transformStructuredData = mergeHeaderAndType(
+        [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
         getStructuredType(dataMatrix, sampleBaseRowRef.current).sort(
           (a, b) => a.row - b.row || a.col - b.col,
         ),
-      ),
+      )
+    console.log("헤더 행 데이터 :", structuredHeaders)
+    console.log("데이터 행 데이터:", structuredData)
+    console.log(
+      "변환된 구조 타입 데이터 (필터링됨):",
+      transformStructuredData
     )
 
+    const recordHeight = sampleRows.length
+
     setMappingResult({
+      headersMatrix,
+      dataMatrix,
+      etcMatrix,
+      recordHeight,
       flattenedHeaders: structuredHeaders,
-      flattenedData: structuredData,
+      flattenedData: transformStructuredData,
       flattenedEtc: getStructuredData(etcMatrix, etcBaseRowRef.current),
     })
 
     console.log("filename", fileInfo?.name)
 
-    // axios.post("/api/common/analyze-excel-structure", {
-    //   fileName: fileInfo?.name,
-    //   flattenedHeaders: getStructuredData(buildStructure(headerRows)), // Array(6)
-    //   flattenedData: getStructuredData(buildStructure(sampleRows)),    // Array(6)
-    //   flattenedEtc: getStructuredData(buildStructure(etcRows)),        // Array(0)
-    // })
+    axios.post("/api/common/analyze-excel-structure", {
+      fileName: fileInfo?.name,
+      flattenedHeaders: structuredHeaders, // Array(6)
+      flattenedData: transformStructuredData,    // Array(6)
+      flattenedEtc: getStructuredData(etcMatrix, etcBaseRowRef.current),        // Array(0)
+    })
     setMode(null)
   }
 
@@ -372,7 +426,8 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
   // 타입 검증 헬퍼
   const isValidType = (value: string, type: string) => {
     if (value === "") return true
-    if (type === "number") return /^\d+$/.test(value)
+    if (type === "string") return !/^\d+(\.\d+)?$/.test(value) // 숫자로만 구성된 문자열은 string 타입에서 에러 처리
+    if (type === "number") return /^\d+(\.\d+)?$/.test(value)
     if (type === "phone") return /^\d{3}-\d{3,4}-\d{4}$/.test(value)
     if (type === "biz-number") return /^\d{3}-\d{2}-\d{5}$/.test(value)
     return true
@@ -471,10 +526,17 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
                       {rowIndex + 1}
                     </td>
                     {rowValues.map((cell, colIndex) => {
+                      const recordHeight = mappingResult?.recordHeight || 1
+                      const relativeRow = (rowIndex - sampleBaseRowRef.current) % recordHeight
+                      const targetSchemaRow = relativeRow + sampleBaseRowRef.current
+
                       const fieldSchema = mappingResult?.flattenedData?.find(
-                        (f: any) => f.row === localIndex && f.col === colIndex,
+                        (f: any) => f.col === colIndex && f.row === targetSchemaRow,
                       )
-                      const isInvalid = !isValidCell(String(cell), fieldSchema)
+                      // 스키마에 정의된 정확한 좌표(row, col) 패턴을 찾아 타입을 비교
+                      const isInvalid = rowIndex >= sampleBaseRowRef.current && 
+                                       fieldSchema && 
+                                       !isValidType(String(cell), fieldSchema.type)
 
                       // 선택된 헤더 셀 여부 확인
                       // 행이 전체 선택(yellow)된 상태에서, selectedHeaderCells는 '흰색으로 변환할 셀'들의 목록임.
@@ -636,10 +698,10 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
               </Button>
             </div>
             <div className="space-y-8">
-              {renderMappingTable(mappingResult.flattenedHeaders, "📋 헤더 영역 (Headers)")}
-              {renderMappingTable(mappingResult.flattenedData, "📊 데이터 영역 (Data Samples)")}
-              {mappingResult.flattenedEtc.length > 0 &&
-                renderMappingTable(mappingResult.flattenedEtc, "📎 기타 정보 (Etc Info)")}
+              {renderMappingTable(mappingResult.headersMatrix, "📋 헤더 영역 (Headers)")}
+              {renderMappingTable(mappingResult.dataMatrix, "📊 데이터 영역 (Data Samples)")}
+              {mappingResult.etcMatrix.length > 0 &&
+                renderMappingTable(mappingResult.etcMatrix, "📎 기타 정보 (Etc Info)")}
             </div>
           </div>
         )}
