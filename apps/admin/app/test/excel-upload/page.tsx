@@ -15,58 +15,75 @@ export default function ExcelUploadTestPage() {
   const [allOriginalData, setAllOriginalData] = useState<any[]>([]) // Add original state
   const [totalCount, setTotalCount] = useState(0)
   const [loadedChunks, setLoadedChunks] = useState<Set<number>>(new Set())
+  const [uploadProgress, setUploadProgress] = useState<number>(0)
+  const [isUploading, setIsUploading] = useState(false)
 
   const [page, setPage] = useState(1) // Current UI page
   const [mappingResult, setMappingResult] = useState<any>(null)
-  const [selectedHeaderCells, setSelectedHeaderCells] = useState<string[]>([])
+  const [selectedHeaderCells, setSelectedHeaderCells] = useState<Set<string>>(new Set())
 
   const rowToValues = (row: any) =>
     (Object.values(row).find((v) => Array.isArray(v)) as any[]) || Object.values(row)
 
   // 선택된 헤더 값들을 좌표 상태로부터 유도 (중복 제거)
   const selectedHeaders = useMemo(() => {
-    const values = selectedHeaderCells.map((id) => {
+    const values = Array.from(selectedHeaderCells).map((id) => {
       const [r, c] = id.split("-").map(Number)
       const row = allData[r]
       if (!row) return ""
       return String(rowToValues(row)[c] || "")
     })
-    return Array.from(new Set(values.filter((v) => v !== "")))
+    return new Set(values.filter((v) => v !== ""))
   }, [selectedHeaderCells, allData])
+
+  // Schema lookup Map for O(1) access
+  const schemaLookup = useMemo(() => {
+    const map = new Map<string, any>()
+    mappingResult?.flattenedData?.forEach((field: any) => {
+      map.set(`${field.row}-${field.col}`, field)
+    })
+    return map
+  }, [mappingResult])
 
   // Selection States
   type SelectionMode = "HEADER" | "DATA" | "ETC" | null
   const [mode, setMode] = useState<SelectionMode>(null)
-  const [selectedHeaderRows, setSelectedHeaderRows] = useState<number[]>([])
-  const [selectedSampleRows, setSelectedSampleRows] = useState<number[]>([])
-  const [selectedEtcRows, setSelectedEtcRows] = useState<number[]>([])
+  const [selectedHeaderRows, setSelectedHeaderRows] = useState<Set<number>>(new Set())
+  const [selectedSampleRows, setSelectedSampleRows] = useState<Set<number>>(new Set())
+  const [selectedEtcRows, setSelectedEtcRows] = useState<Set<number>>(new Set())
   const headerBaseRowRef = useRef<number>(0)
   const sampleBaseRowRef = useRef<number>(0)
   const etcBaseRowRef = useRef<number>(0)
-const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const selectedFile = e.target.files?.[0]
-  if (selectedFile) {
-    setFile(selectedFile)
-    setFileInfo({ name: selectedFile.name, size: selectedFile.size })
-    setAllData([])
-    setAllOriginalData([]) // Reset original
-    setTotalCount(0)
-    setLoadedChunks(new Set())
-    setPage(1)
-    setSelectedHeaderRows([])
-    setSelectedSampleRows([])
-    setSelectedEtcRows([])
-    setSelectedHeaderCells([])
-    setMode(null)
-    setMappingResult(null)
-  }
-}
 
-  const fetchChunk = async (chunkIndex: number) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) {
+      setFile(selectedFile)
+      setFileInfo({ name: selectedFile.name, size: selectedFile.size })
+      setAllData([])
+      setAllOriginalData([]) // Reset original
+      setTotalCount(0)
+      setLoadedChunks(new Set())
+      setPage(1)
+      setSelectedHeaderRows(new Set())
+      setSelectedSampleRows(new Set())
+      setSelectedEtcRows(new Set())
+      setSelectedHeaderCells(new Set())
+      setMode(null)
+      setMappingResult(null)
+    }
+  }
+
+  const fetchChunk = async (chunkIndex: number, isInitial: boolean = false) => {
     if (loadedChunks.has(chunkIndex)) return
     if (!file) return
 
     try {
+      if (isInitial) {
+        setIsUploading(true)
+        setUploadProgress(5)
+      }
+
       const formData = new FormData()
       formData.append("file", file)
       formData.append("rowNo", "0")
@@ -74,10 +91,21 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       formData.append("page", (chunkIndex + 1).toString())
       formData.append("size", "1000")
 
-      const response = await axios.post("/api/common/upload-excel", formData)
+      const response = await axios.post("/api/common/upload-excel", formData, {
+        onUploadProgress: (progressEvent) => {
+          if (isInitial && progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 45) / progressEvent.total)
+            setUploadProgress(5 + percentCompleted) // 5% ~ 50%
+          }
+        }
+      })
 
       if (response.data) {
+        if (isInitial) setUploadProgress(55)
+
         const rawRows = response.data.dataList || response.data.data?.dataList || []
+        const totalRows = rawRows.length
+        
         // 숫자 뒤에 .0이 붙는 경우(예: 2.0) 이를 제거하여 정수 형태로 정규화
         const sanitize = (val: any): any => {
           if (typeof val === "string" && /^\d+\.0$/.test(val)) {
@@ -86,7 +114,10 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
           return val
         }
 
-        const newRows = rawRows.map((row: any) => {
+        const newRows = rawRows.map((row: any, idx: number) => {
+          if (isInitial && idx % 100 === 0) {
+            setUploadProgress(55 + Math.round((idx / totalRows) * 35)) // 55% ~ 90%
+          }
           const sanitizedRow = { ...row }
           Object.keys(sanitizedRow).forEach((key) => {
             if (Array.isArray(sanitizedRow[key])) {
@@ -99,13 +130,27 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         })
 
         setAllData((prev) => [...prev, ...newRows])
-        setAllOriginalData((prev) => [...prev, ...JSON.parse(JSON.stringify(newRows))]) // Store deep copy
+        setAllOriginalData((prev) => [...prev, ...newRows.map(r => ({ ...r }))]) 
         setTotalCount(response.data.totalCount || response.data.data?.totalCount || 0)
-        setLoadedChunks((prev) => new Set(prev.add(chunkIndex)))
+        setLoadedChunks((prev) => {
+          const next = new Set(prev)
+          next.add(chunkIndex)
+          return next
+        })
+
+        if (isInitial) {
+          setUploadProgress(100)
+          setTimeout(() => {
+            setIsUploading(false)
+            setUploadProgress(0)
+          }, 500)
+        }
       }
     } catch (error: any) {
       console.error("Chunk fetch failed", error)
       alert(`업로드 실패: ${error.response?.data?.message || error.message}`)
+      setIsUploading(false)
+      setUploadProgress(0)
     }
   }
 
@@ -115,7 +160,7 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setAllOriginalData([])
     setLoadedChunks(new Set())
     setPage(1)
-    fetchChunk(0)
+    fetchChunk(0, true)
   }
 
   // 수정된 데이터만 추출하는 함수
@@ -152,29 +197,41 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
   const handleRowClick = (rowIndex: number) => {
     if (mode === "HEADER") {
       setSelectedHeaderRows((prev) => {
-        const next = prev.includes(rowIndex)
-          ? prev.filter((r) => r !== rowIndex)
-          : [...prev, rowIndex].sort((a, b) => a - b)
-        if (next.length > 0) headerBaseRowRef.current = next[0]
+        const next = new Set(prev)
+        if (next.has(rowIndex)) {
+          next.delete(rowIndex)
+        } else {
+          next.add(rowIndex)
+        }
+        const sorted = Array.from(next).sort((a, b) => a - b)
+        if (sorted.length > 0) headerBaseRowRef.current = sorted[0]
 
         return next
       })
       // 행을 선택 해제하거나 새로 선택할 때 해당 행의 개별 셀 선택 정보(흰색 배경)는 초기화
-      setSelectedHeaderCells((prev) => prev.filter((id) => !id.startsWith(`${rowIndex}-`)))
+      setSelectedHeaderCells((prev) => {
+        const next = new Set(prev)
+        next.forEach((id) => {
+          if (id.startsWith(`${rowIndex}-`)) next.delete(id)
+        })
+        return next
+      })
     } else if (mode === "DATA") {
       setSelectedSampleRows((prev) => {
-        const next = prev.includes(rowIndex)
-          ? prev.filter((r) => r !== rowIndex)
-          : [...prev, rowIndex].sort((a, b) => a - b)
-        if (next.length > 0) sampleBaseRowRef.current = next[0]
+        const next = new Set(prev)
+        if (next.has(rowIndex)) next.delete(rowIndex)
+        else next.add(rowIndex)
+        const sorted = Array.from(next).sort((a, b) => a - b)
+        if (sorted.length > 0) sampleBaseRowRef.current = sorted[0]
         return next
       })
     } else if (mode === "ETC") {
       setSelectedEtcRows((prev) => {
-        const next = prev.includes(rowIndex)
-          ? prev.filter((r) => r !== rowIndex)
-          : [...prev, rowIndex].sort((a, b) => a - b)
-        if (next.length > 0) etcBaseRowRef.current = next[0]
+        const next = new Set(prev)
+        if (next.has(rowIndex)) next.delete(rowIndex)
+        else next.add(rowIndex)
+        const sorted = Array.from(next).sort((a, b) => a - b)
+        if (sorted.length > 0) etcBaseRowRef.current = sorted[0]
         return next
       })
     }
@@ -185,26 +242,28 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const cellId = `${rowIndex}-${colIndex}`
 
     setSelectedHeaderCells((prev) => {
-      if (prev.includes(cellId)) {
-        return prev.filter((id) => id !== cellId)
+      const next = new Set(prev)
+      if (next.has(cellId)) {
+        next.delete(cellId)
       } else {
-        return [...prev, cellId]
+        next.add(cellId)
       }
+      return next
     })
   }
 
   const handleReset = () => {
     if (mode === "HEADER") {
-      setSelectedHeaderRows([])
-      setSelectedHeaderCells([])
-    } else if (mode === "DATA") setSelectedSampleRows([])
-    else if (mode === "ETC") setSelectedEtcRows([])
+      setSelectedHeaderRows(new Set())
+      setSelectedHeaderCells(new Set())
+    } else if (mode === "DATA") setSelectedSampleRows(new Set())
+    else if (mode === "ETC") setSelectedEtcRows(new Set())
   }
 
   const handleConfirmMapping = () => {
-    const headerRows = selectedHeaderRows.map((idx) => rowToValues(allData[idx]))
-    const sampleRows = selectedSampleRows.map((idx) => rowToValues(allData[idx]))
-    const etcRows = selectedEtcRows.map((idx) => rowToValues(allData[idx]))
+    const headerRows = Array.from(selectedHeaderRows).map((idx) => rowToValues(allData[idx]))
+    const sampleRows = Array.from(selectedSampleRows).map((idx) => rowToValues(allData[idx]))
+    const etcRows = Array.from(selectedEtcRows).map((idx) => rowToValues(allData[idx]))
 
     if (headerRows.length === 0 || sampleRows.length === 0) {
       alert("헤더 행과 데이터 행을 모두 선택해 주세요.")
@@ -334,10 +393,10 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 
         // 2. value -> column 키 변경 및 객체 생성 (데이터 행의 실제 row 값 사용)
         const { value, ...rest } = header
-        const merged: any = { 
-          column: value, 
-          ...rest, 
-          row: typeInfo?.row ?? sampleBaseRowRef.current 
+        const merged: any = {
+          column: value,
+          ...rest,
+          row: typeInfo?.row ?? sampleBaseRowRef.current
         }
 
         // 3. 타입 정보 병합
@@ -357,16 +416,16 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const structuredHeaders = getStructuredData(headersMatrix, headerBaseRowRef.current)
     // 필터링 후 헤더 행 데이터 -- 미사용 헤더 제거
     const filteredStructuredHeaders = structuredHeaders.filter(
-      (h) => !selectedHeaders.includes(h.value),
+      (h) => !selectedHeaders.has(h.value),
     )
     const structuredData = getStructuredData(dataMatrix, sampleBaseRowRef.current)
     //변형된 구조 타입 데이터 (헤더 기반 필터링 적용)
     const transformStructuredData = mergeHeaderAndType(
-        [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
-        getStructuredType(dataMatrix, sampleBaseRowRef.current).sort(
-          (a, b) => a.row - b.row || a.col - b.col,
-        ),
-      )
+      [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
+      getStructuredType(dataMatrix, sampleBaseRowRef.current).sort(
+        (a, b) => a.row - b.row || a.col - b.col,
+      ),
+    )
     console.log("헤더 행 데이터 :", structuredHeaders)
     console.log("데이터 행 데이터:", structuredData)
     console.log(
@@ -509,9 +568,9 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
             <tbody>
               {paginatedData.map((row: any, localIndex: number) => {
                 const rowIndex = (page - 1) * pageSize + localIndex
-                const isHeader = selectedHeaderRows.includes(rowIndex)
-                const isData = selectedSampleRows.includes(rowIndex)
-                const isEtc = selectedEtcRows.includes(rowIndex)
+                const isHeader = selectedHeaderRows.has(rowIndex)
+                const isData = selectedSampleRows.has(rowIndex)
+                const isEtc = selectedEtcRows.has(rowIndex)
                 const rowValues = rowToValues(row)
 
                 return (
@@ -530,26 +589,25 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
                       const relativeRow = (rowIndex - sampleBaseRowRef.current) % recordHeight
                       const targetSchemaRow = relativeRow + sampleBaseRowRef.current
 
-                      const fieldSchema = mappingResult?.flattenedData?.find(
-                        (f: any) => f.col === colIndex && f.row === targetSchemaRow,
-                      )
-                      // 스키마에 정의된 정확한 좌표(row, col) 패턴을 찾아 타입을 비교
-                      const isInvalid = rowIndex >= sampleBaseRowRef.current && 
-                                       fieldSchema && 
-                                       !isValidType(String(cell), fieldSchema.type)
+                      // Optimization 3: O(1) Lookup using Map
+                      const fieldSchema = schemaLookup.get(`${targetSchemaRow}-${colIndex}`)
 
-                      // 선택된 헤더 셀 여부 확인
-                      // 행이 전체 선택(yellow)된 상태에서, selectedHeaderCells는 '흰색으로 변환할 셀'들의 목록임.
-                      const isCellWhite = selectedHeaderCells.includes(`${rowIndex}-${colIndex}`);
-                      const isHeaderRowSelected = selectedHeaderRows.includes(rowIndex);
+                      // 스키마에 정의된 정확한 좌표(row, col) 패턴을 찾아 타입을 비교
+                      const isInvalid = rowIndex >= sampleBaseRowRef.current &&
+                        fieldSchema &&
+                        !isValidType(String(cell), fieldSchema.type)
+
+                      // Optimization 4: O(1) Lookup using Set
+                      const isCellWhite = selectedHeaderCells.has(`${rowIndex}-${colIndex}`);
+                      const isHeaderRowSelected = selectedHeaderRows.has(rowIndex);
 
                       return (
                         <td
                           key={colIndex}
                           onClick={() => {
-                             if (mode === "HEADER" && isHeaderRowSelected) {
-                               handleHeaderCellClick(rowIndex, colIndex);
-                             }
+                            if (mode === "HEADER" && isHeaderRowSelected) {
+                              handleHeaderCellClick(rowIndex, colIndex);
+                            }
                           }}
                           className={`border-2 text-sm text-center border-gray-800 whitespace-nowrap w-12 
                             ${isInvalid ? 'border-red-500 bg-red-100' : ''} 
@@ -678,9 +736,27 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
           </Button>
         </div>
         {fileInfo && (
-          <div className="bg-gray-100 p-4 rounded">
-            <Text>파일명: {fileInfo.name}</Text>
-            <Text>용량: {(fileInfo.size / 1024).toFixed(2)} KB</Text>
+          <div className="bg-gray-100 p-4 rounded flex flex-col gap-3">
+            <div>
+              <Text className="text-sm font-semibold">파일 정보</Text>
+              <Text className="text-xs text-gray-500 truncate">{fileInfo.name}</Text>
+              <Text className="text-xs text-gray-500">{(fileInfo.size / 1024).toFixed(2)} KB</Text>
+            </div>
+            
+            {isUploading && (
+              <div className="mt-2">
+                <div className="flex justify-between mb-1">
+                  <Text className="text-xs font-medium text-blue-700">업로드 중...</Text>
+                  <Text className="text-xs font-medium text-blue-700">{uploadProgress}%</Text>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
