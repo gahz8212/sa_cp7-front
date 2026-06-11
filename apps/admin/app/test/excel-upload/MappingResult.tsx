@@ -1,5 +1,5 @@
 "use client"
-
+// 구조 해석
 import { Heading, Button, Text, cn } from "@cp7/ui"
 import { useExcelStore } from "../../../common/store/useExcelStore"
 
