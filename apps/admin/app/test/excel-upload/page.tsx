@@ -99,13 +99,13 @@ export default function ExcelUploadTestPage() {
           }
         }
       })
-
+      console.log("Chunk response:", response.data)
       if (response.data) {
         if (isInitial) setUploadProgress(55)
 
         const rawRows = response.data.dataList || response.data.data?.dataList || []
         const totalRows = rawRows.length
-        
+
         // 숫자 뒤에 .0이 붙는 경우(예: 2.0) 이를 제거하여 정수 형태로 정규화
         const sanitize = (val: any): any => {
           if (typeof val === "string" && /^\d+\.0$/.test(val)) {
@@ -130,7 +130,7 @@ export default function ExcelUploadTestPage() {
         })
 
         setAllData((prev) => [...prev, ...newRows])
-        setAllOriginalData((prev) => [...prev, ...newRows.map(r => ({ ...r }))]) 
+        setAllOriginalData((prev) => [...prev, ...newRows.map(r => ({ ...r }))])
         setTotalCount(response.data.totalCount || response.data.data?.totalCount || 0)
         setLoadedChunks((prev) => {
           const next = new Set(prev)
@@ -742,7 +742,7 @@ export default function ExcelUploadTestPage() {
               <Text className="text-xs text-gray-500 truncate">{fileInfo.name}</Text>
               <Text className="text-xs text-gray-500">{(fileInfo.size / 1024).toFixed(2)} KB</Text>
             </div>
-            
+
             {isUploading && (
               <div className="mt-2">
                 <div className="flex justify-between mb-1">
@@ -750,8 +750,8 @@ export default function ExcelUploadTestPage() {
                   <Text className="text-xs font-medium text-blue-700">{uploadProgress}%</Text>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
-                  <div 
-                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                  <div
+                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
                     style={{ width: `${uploadProgress}%` }}
                   ></div>
                 </div>
