@@ -1,4 +1,4 @@
-"use client"
+
 
 import { Heading } from "@cp7/ui"
 import { UploadPanel } from "./UploadPanel"

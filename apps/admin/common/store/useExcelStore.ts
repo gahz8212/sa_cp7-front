@@ -6,6 +6,15 @@ export type SelectionMode = "HEADER" | "DATA" | "ETC" | null
 export const rowToValues = (row: any) =>
   (Object.values(row).find((v) => Array.isArray(v)) as any[]) || Object.values(row)
 
+interface TargetColumn {
+  backColumn: string
+  name: string
+  description: string
+  required: boolean
+  frontColumn?: string | null // 매핑된 엑셀 컬럼명
+  excelColIndex?: number | null // 매핑된 엑셀 컬럼 인덱스
+}
+
 interface ExcelState {
   file: File | null
   fileInfo: { name: string; size: number } | null
@@ -25,6 +34,8 @@ interface ExcelState {
   headerBaseRow: number
   sampleBaseRow: number
   etcBaseRow: number
+  targetColumns: TargetColumn[]
+  isMappingConfirmed: boolean
 }
 
 interface ExcelActions {
@@ -43,6 +54,9 @@ interface ExcelActions {
   handleConfirmMapping: () => void
   handleCellEdit: (rowIndex: number, colIndex: number, newValue: string) => void
   setMappingResult: (result: any) => void
+  setTargetColumns: (columns: TargetColumn[]) => void
+  updateColumnMapping: (backColumn: string, frontColumn: string | null, colIndex: number | null) => void
+  confirmMappingCompletion: () => void
 }
 
 export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
@@ -64,6 +78,28 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   headerBaseRow: 0,
   sampleBaseRow: 0,
   etcBaseRow: 0,
+  // 백엔드에서 받아온 매핑 대상 컬럼
+  targetColumns: [],
+  isMappingConfirmed: false,
+
+  confirmMappingCompletion: () => set({ isMappingConfirmed: true }),
+
+  setTargetColumns: (columns) => set({ targetColumns: columns }),
+  
+  updateColumnMapping: (backColumn, frontColumn, colIndex) => set((prev) => {
+    const nextTargetColumns = prev.targetColumns.map((col) => {
+      // 1. 해당 시스템 컬럼의 매핑 정보를 업데이트
+      if (col.backColumn === backColumn) {
+        return { ...col, frontColumn, excelColIndex: colIndex }
+      }
+      // 2. 다른 시스템 컬럼이 이미 이 엑셀 컬럼에 매핑되어 있었다면 해제 (1:1 매핑 유지)
+      if (frontColumn && col.frontColumn === frontColumn && col.excelColIndex === colIndex) {
+        return { ...col, frontColumn: null, excelColIndex: null }
+      }
+      return col
+    })
+    return { targetColumns: nextTargetColumns, isMappingConfirmed: false }
+  }),
 
   setFile: (file) => {
     if (file) {
@@ -84,6 +120,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         headerBaseRow: 0,
         sampleBaseRow: 0,
         etcBaseRow: 0,
+        targetColumns: [],
+        isMappingConfirmed: false,
       })
     } else {
       get().resetAll()
@@ -125,6 +163,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       headerBaseRow: 0,
       sampleBaseRow: 0,
       etcBaseRow: 0,
+      targetColumns: [],
+      isMappingConfirmed: false,
     })
   },
 
@@ -155,7 +195,20 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       })
       console.log("Chunk response:", response.data)
       if (response.data) {
-        if (isInitial) set({ uploadProgress: 55 })
+        if (isInitial) {
+           set({ uploadProgress: 55 })
+           // 첫 청크 로드 시 targetColumns가 서버 응답에 있다면 상태에 저장합니다.
+           const backendTargetColumns = response.data.targetColumns || response.data.data?.targetColumns
+           if (backendTargetColumns) {
+               // 프론트에서 사용할 수 있도록 frontColumn, excelColIndex를 명시적으로 초기화 (이미 있으면 유지)
+               const initializedColumns = backendTargetColumns.map((col: any) => ({
+                 ...col,
+                 frontColumn: col.frontColumn || null,
+                 excelColIndex: col.excelColIndex ?? null
+               }))
+               set({ targetColumns: initializedColumns })
+           }
+        }
 
         const rawRows = response.data.dataList || response.data.data?.dataList || []
         const totalRows = rawRows.length
@@ -218,9 +271,20 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   },
 
   handleExtractModifiedData: () => {
-    const { allData, allOriginalData } = get()
+    const { 
+      allData, 
+      allOriginalData, 
+      targetColumns, 
+      selectedHeaderRows, 
+      headerBaseRow, 
+      sampleBaseRow,
+      mappingResult,
+      fileInfo
+    } = get()
+    
     if (allData.length === 0) return
 
+    // 1. 수정된 데이터 추출
     const changes = allData
       .map((currentRow: any, index: number) => {
         const originalRow = allOriginalData[index]
@@ -240,11 +304,51 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       })
       .filter((item: any) => item !== null)
 
+    // 2. 템플릿 데이터 생성
+    const headerRowIndices = Array.from(selectedHeaderRows).sort((a, b) => a - b)
+    const headerEndRow = headerRowIndices.length > 0 ? headerRowIndices[headerRowIndices.length - 1] : headerBaseRow
+    
+    // 선택된 헤더 행(첫 번째 줄)의 모든 컬럼 값을 가져옵니다.
+    const originalHeaderColumns = headerRowIndices.length > 0 
+      ? rowToValues(allData[headerRowIndices[0]]).map(v => String(v || "").trim())
+      : []
+
+    // 백엔드 요청을 위해 userMapping 형식으로 변환
+    const userMapping = targetColumns
+      .filter(col => col.frontColumn)
+      .map(col => ({
+        "front-column": col.frontColumn,
+        "back-column": col.name
+      }))
+
+    const templateData = {
+      targetSysType: mappingResult?.targetSysType || "UNKNOWN",
+      fileName: fileInfo?.name,
+      headerStructure: {
+        headerStartRow: headerBaseRow,
+        headerEndRow: headerEndRow,
+        dataStartRow: sampleBaseRow,
+        originalHeaderColumns: originalHeaderColumns
+      },
+      userMapping: userMapping,
+      targetColumns: targetColumns // 통합된 전체 데이터 전송
+    }
+
     console.log("Modified Data:", changes)
-    if (changes.length > 0) {
-      axios.post("/api/common/save-excel-changes", { modifiedRows: changes })
+    console.log("Generated Template Data:", templateData)
+
+    if (changes.length > 0 || userMapping.length > 0) {
+      axios.post("/api/common/save-excel-data-and-template", { 
+        modifiedRows: changes,
+        template: templateData
+      }).then(() => {
+        alert("데이터와 매핑 템플릿이 성공적으로 저장되었습니다.")
+      }).catch(err => {
+        console.error("Save failed", err)
+        alert("저장 중 오류가 발생했습니다.")
+      })
     } else {
-      alert("수정된 데이터가 없습니다.")
+      alert("수정된 데이터나 매핑 정보가 없습니다.")
     }
   },
 
