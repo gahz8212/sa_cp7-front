@@ -1,6 +1,6 @@
 "use client"
 import { useMemo, useState } from "react"
-import { Button, Input, Badge } from "@cp7/ui"
+import { Button, Input, Badge, Checkbox, Label } from "@cp7/ui"
 import { useExcelStore, rowToValues } from "../../../common/store/useExcelStore"
 import {
   DndContext,
@@ -97,6 +97,7 @@ export function DataGrid() {
     handleCellEdit,
     updateColumnMapping,
     confirmMappingCompletion,
+    setIsMappingConfirmed,
   } = useExcelStore()
 
   const pageSize = 20
@@ -216,32 +217,59 @@ export function DataGrid() {
           </div>
         </div>
 
-        <div className="flex gap-2 p-2 border rounded mb-4 justify-end items-center">
-          <Button
-            variant={mode === "HEADER" ? "primary" : "secondary"}
-            onClick={() => setMode("HEADER")}
-          >
-            헤더 선택
-          </Button>
-          <Button
-            variant={mode === "DATA" ? "primary" : "secondary"}
-            onClick={() => setMode("DATA")}
-          >
-            데이터 선택
-          </Button>
-          <Button variant={mode === "ETC" ? "primary" : "secondary"} onClick={() => setMode("ETC")}>
-            기타 선택
-          </Button>
-          <Button variant="secondary" onClick={resetSelection}>
-            선택 해제
-          </Button>
-          <div className="mx-2 border-l h-6" />
-          {/* <Button variant="primary" onClick={handleConfirmMapping}>
-            구조 해석
-          </Button> */}
-          <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={onCompleteClick}>
-            수정 완료
-          </Button>
+        <div className="flex gap-2 p-2 border rounded mb-4 justify-between items-center bg-gray-50/50">
+          <div className="flex items-center gap-6 ml-2">
+            <div className="flex items-center gap-2 cursor-pointer group">
+              <Checkbox
+                id="edit-mapping-mode"
+                checked={!isMappingConfirmed}
+                onCheckedChange={(checked) => setIsMappingConfirmed(!checked)}
+              />
+              <Label
+                htmlFor="edit-mapping-mode"
+                className="text-sm font-semibold text-gray-700 cursor-pointer group-hover:text-blue-600 transition-colors"
+              >
+                매핑 정보 수정 모드
+              </Label>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant={mode === "HEADER" ? "primary" : "secondary"}
+                onClick={() => setMode("HEADER")}
+                size="sm"
+              >
+                헤더 선택
+              </Button>
+              <Button
+                variant={mode === "DATA" ? "primary" : "secondary"}
+                onClick={() => setMode("DATA")}
+                size="sm"
+              >
+                데이터 선택
+              </Button>
+              <Button
+                variant={mode === "ETC" ? "primary" : "secondary"}
+                onClick={() => setMode("ETC")}
+                size="sm"
+              >
+                기타 선택
+              </Button>
+              <Button variant="secondary" onClick={resetSelection} size="sm">
+                선택 해제
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="mx-2 border-l h-6" />
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white shadow-md transition-all active:scale-95"
+              onClick={onCompleteClick}
+            >
+              수정 완료
+            </Button>
+          </div>
         </div>
 
         <div className="overflow-x-auto w-full border border-gray-200 ">

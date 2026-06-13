@@ -60,6 +60,7 @@ interface ExcelActions {
   setTargetColumns: (columns: TargetColumn[]) => void
   updateColumnMapping: (backColumn: string, frontColumn: string | null, colIndex: number | null) => void
   confirmMappingCompletion: () => void
+  setIsMappingConfirmed: (isConfirmed: boolean) => void
 }
 
 export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
@@ -89,6 +90,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   isMappingConfirmed: false,
 
   confirmMappingCompletion: () => set({ isMappingConfirmed: true }),
+
+  setIsMappingConfirmed: (isMappingConfirmed) => set({ isMappingConfirmed }),
 
   setTargetColumns: (columns) => set({ targetColumns: columns }),
   
