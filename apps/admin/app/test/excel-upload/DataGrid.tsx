@@ -2,7 +2,14 @@
 import { useMemo, useState } from "react"
 import { Button, Input, Badge } from "@cp7/ui"
 import { useExcelStore, rowToValues } from "../../../common/store/useExcelStore"
-import { DndContext, useDraggable, useDroppable, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core"
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+} from "@dnd-kit/core"
 
 // 타입 검증 헬퍼
 const isValidType = (value: string, type: string) => {
@@ -23,7 +30,12 @@ function DraggableBadge({ col, disabled }: { col: any; disabled: boolean }) {
 
   // 드래그 중일 때는 원본 위치의 배지를 투명하게(또는 숨김) 처리
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={`relative touch-none ${isDragging ? 'opacity-0' : 'opacity-100'}`}>
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`relative touch-none ${isDragging ? "opacity-0" : "opacity-100"}`}
+    >
       <Badge
         variant={col.required ? "error" : "info"}
         className={`${!disabled ? "cursor-grab shadow-sm hover:shadow-md" : ""}`}
@@ -35,14 +47,25 @@ function DraggableBadge({ col, disabled }: { col: any; disabled: boolean }) {
   )
 }
 
-function DroppableCell({ id, children, isSelected }: { id: string; children: React.ReactNode; isSelected: boolean }) {
+function DroppableCell({
+  id,
+  children,
+  isSelected,
+}: {
+  id: string
+  children: React.ReactNode
+  isSelected: boolean
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id,
     disabled: !isSelected,
   })
 
   return (
-    <div ref={setNodeRef} className={`w-full h-full min-h-[32px] relative transition-colors ${isOver ? "bg-blue-100 ring-2 ring-blue-400 ring-inset" : ""}`}>
+    <div
+      ref={setNodeRef}
+      className={`w-full h-full min-h-[32px] relative transition-colors ${isOver ? "bg-blue-100 ring-2 ring-blue-400 ring-inset" : ""}`}
+    >
       {children}
     </div>
   )
@@ -73,7 +96,7 @@ export function DataGrid() {
     handleConfirmMapping,
     handleCellEdit,
     updateColumnMapping,
-    confirmMappingCompletion
+    confirmMappingCompletion,
   } = useExcelStore()
 
   const pageSize = 20
@@ -95,7 +118,7 @@ export function DataGrid() {
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event
-    const draggedCol = targetColumns.find(c => c.backColumn === active.id)
+    const draggedCol = targetColumns.find((c) => c.backColumn === active.id)
     if (draggedCol) {
       setActiveCol(draggedCol)
     }
@@ -115,12 +138,16 @@ export function DataGrid() {
   }
 
   const onCompleteClick = () => {
-    const allMapped = targetColumns.every(col => col.frontColumn)
+    // 1. 구조 해석 자동 실행
+    handleConfirmMapping()
+
+    // 2. 매핑 완료 체크 및 진행
+    const allMapped = targetColumns.every((col) => col.frontColumn)
 
     if (!allMapped) {
       const missing = targetColumns
-        .filter(col => !col.frontColumn)
-        .map(col => col.name)
+        .filter((col) => !col.frontColumn)
+        .map((col) => col.name)
         .join(", ")
       if (!confirm(`아직 매핑되지 않은 항목(${missing})이 있습니다. 그래도 진행하시겠습니까?`)) {
         return
@@ -133,7 +160,7 @@ export function DataGrid() {
 
   // 매핑되지 않은 시스템 컬럼만 배지로 표시
   const unmappedColumns = useMemo(() => {
-    return targetColumns.filter(c => !c.frontColumn)
+    return targetColumns.filter((c) => !c.frontColumn)
   }, [targetColumns])
 
   if (allData.length === 0) {
@@ -148,19 +175,23 @@ export function DataGrid() {
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="mt-6 flex flex-col">
         {/* 백엔드 시스템 컬럼 (D&D Source 영역) - 매핑 완료 시 스르륵 사라짐 */}
-        <div 
+        <div
           className={`overflow-hidden transition-all duration-500 ease-in-out ${
             isMappingConfirmed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100 mb-4"
           }`}
         >
-          <div className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}>
+          <div
+            className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
+          >
             <div className="flex justify-between items-center mb-2">
-              <div className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}>
+              <div
+                className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}
+              >
                 매핑할 시스템 컬럼
               </div>
               {!hasHeaderSelected && (
                 <div className="text-xs text-red-500 font-medium">
-                  * 아래 데이터 그리드에서 '헤더' 행을 먼저 선택해주세요.
+                  * 아래 데이터 그리드에서 &apos;헤더&apos; 행을 먼저 선택해주세요.
                 </div>
               )}
               {hasHeaderSelected && (
@@ -171,8 +202,8 @@ export function DataGrid() {
             </div>
             <div className="flex flex-wrap gap-2 min-h-[28px]">
               {unmappedColumns.map((col) => (
-                <div 
-                  key={col.backColumn} 
+                <div
+                  key={col.backColumn}
                   className={`transition-all duration-200 ${!hasHeaderSelected ? "opacity-40 grayscale pointer-events-none" : ""}`}
                 >
                   <DraggableBadge col={col} disabled={!hasHeaderSelected} />
@@ -192,7 +223,10 @@ export function DataGrid() {
           >
             헤더 선택
           </Button>
-          <Button variant={mode === "DATA" ? "primary" : "secondary"} onClick={() => setMode("DATA")}>
+          <Button
+            variant={mode === "DATA" ? "primary" : "secondary"}
+            onClick={() => setMode("DATA")}
+          >
             데이터 선택
           </Button>
           <Button variant={mode === "ETC" ? "primary" : "secondary"} onClick={() => setMode("ETC")}>
@@ -202,13 +236,10 @@ export function DataGrid() {
             선택 해제
           </Button>
           <div className="mx-2 border-l h-6" />
-          <Button variant="primary" onClick={handleConfirmMapping}>
+          {/* <Button variant="primary" onClick={handleConfirmMapping}>
             구조 해석
-          </Button>
-          <Button
-            className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={onCompleteClick}
-          >
+          </Button> */}
+          <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={onCompleteClick}>
             수정 완료
           </Button>
         </div>
@@ -251,10 +282,11 @@ export function DataGrid() {
                       const cellId = `${rowIndex}-${colIndex}`
 
                       // 통합된 targetColumns에서 이 셀에 매핑된 정보가 있는지 확인
-                      const mappedColumn = targetColumns.find(col => 
-                        isHeaderRowSelected && 
-                        col.excelColIndex === colIndex && 
-                        col.frontColumn === String(rowValues[colIndex] || "")
+                      const mappedColumn = targetColumns.find(
+                        (col) =>
+                          isHeaderRowSelected &&
+                          col.excelColIndex === colIndex &&
+                          col.frontColumn?.trim() === String(rowValues[colIndex] || "").trim(),
                       )
 
                       return (
@@ -272,14 +304,18 @@ export function DataGrid() {
                           `}
                         >
                           <DroppableCell id={cellId} isSelected={isHeaderRowSelected}>
-                            <div className={`flex flex-col items-center justify-center p-1 relative transition-all duration-200 ${isHeaderRowSelected ? "min-h-[60px]" : "min-h-[50px]"}`}>
+                            <div
+                              className={`flex flex-col items-center justify-center p-1 relative transition-all duration-200 ${isHeaderRowSelected ? "min-h-[60px]" : "min-h-[50px]"}`}
+                            >
                               {/* 기존 엑셀 컬럼명 (항상 정중앙 유지) */}
                               <div className="w-full h-full flex justify-center items-center z-0">
                                 <Input
                                   autoWidth
                                   className={`bg-transparent text-center outline-none ${isHeaderRowSelected ? "font-bold mt-2" : ""}`}
                                   value={String(cell || "")}
-                                  onChange={(e) => handleCellEdit(rowIndex, colIndex, e.target.value)}
+                                  onChange={(e) =>
+                                    handleCellEdit(rowIndex, colIndex, e.target.value)
+                                  }
                                   readOnly={isHeaderRowSelected}
                                 />
                               </div>
@@ -287,7 +323,7 @@ export function DataGrid() {
                               {isHeaderRowSelected && mappedColumn && (
                                 <>
                                   {!isMappingConfirmed ? (
-                                    <div 
+                                    <div
                                       className="absolute top-0.5 left-1/2 -translate-x-1/2 z-10 cursor-pointer group"
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -295,21 +331,34 @@ export function DataGrid() {
                                       }}
                                       title="클릭하여 매핑 해제"
                                     >
-                                      <Badge 
-                                        variant={mappedColumn.required ? "error" : "info"} 
-                                        size="sm" 
+                                      <Badge
+                                        variant={mappedColumn.required ? "error" : "info"}
+                                        size="sm"
                                         className="shadow-md transition-all duration-200 group-hover:scale-95 group-hover:opacity-80 group-hover:bg-gray-400 group-hover:text-white"
                                       >
-                                        <span className="group-hover:line-through">{mappedColumn.name}</span>
+                                        <span className="group-hover:line-through">
+                                          {mappedColumn.name}
+                                        </span>
                                       </Badge>
                                     </div>
                                   ) : (
-                                    <div 
+                                    <div
                                       className="absolute top-1 right-1 z-10 flex items-center justify-center w-5 h-5 bg-green-500 rounded-full shadow-sm animate-in zoom-in duration-300"
                                       title={`매핑 완료: ${mappedColumn.name}`}
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        className="h-3 w-3 text-white"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={3}
+                                          d="M5 13l4 4L19 7"
+                                        />
                                       </svg>
                                     </div>
                                   )}

@@ -34,6 +34,9 @@ interface ExcelState {
   headerBaseRow: number
   sampleBaseRow: number
   etcBaseRow: number
+  headerHeight: number
+  recordHeight: number
+  etcHeight: number
   targetColumns: TargetColumn[]
   isMappingConfirmed: boolean
 }
@@ -78,6 +81,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   headerBaseRow: 0,
   sampleBaseRow: 0,
   etcBaseRow: 0,
+  headerHeight: 0,
+  recordHeight: 0,
+  etcHeight: 0,
   // 백엔드에서 받아온 매핑 대상 컬럼
   targetColumns: [],
   isMappingConfirmed: false,
@@ -120,6 +126,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         headerBaseRow: 0,
         sampleBaseRow: 0,
         etcBaseRow: 0,
+        headerHeight: 0,
+        recordHeight: 0,
+        etcHeight: 0,
         targetColumns: [],
         isMappingConfirmed: false,
       })
@@ -163,6 +172,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       headerBaseRow: 0,
       sampleBaseRow: 0,
       etcBaseRow: 0,
+      headerHeight: 0,
+      recordHeight: 0,
+      etcHeight: 0,
       targetColumns: [],
       isMappingConfirmed: false,
     })
@@ -247,6 +259,51 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         })
 
         if (isInitial) {
+          const { targetColumns } = get()
+          const mappedColumns = targetColumns.filter(col => col.frontColumn)
+          
+          if (mappedColumns.length > 0) {
+             const detectedHeaderRows = new Set<number>();
+
+             // 1. 먼저 상위 20행을 스캔하여 '대표 헤더 행'을 찾고 영역을 추정함
+             // (이 작업은 headerBaseRow와 headerHeight를 확정하기 위함)
+             for (let i = 0; i < Math.min(newRows.length, 20); i++) {
+                const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
+                targetColumns.forEach(col => {
+                    if (col.frontColumn && rowValues.includes(col.frontColumn.trim())) {
+                        detectedHeaderRows.add(i);
+                    }
+                });
+             }
+
+             if (detectedHeaderRows.size > 0) {
+                const sortedRows = Array.from(detectedHeaderRows).sort((a, b) => a - b);
+                const hBaseRow = sortedRows[0];
+                const hHeight = sortedRows.length; // 연속된 행이라고 가정 (또는 마지막-처음 + 1)
+
+                // 2. 확정된 헤더 영역 내에서 각 컬럼의 excelColIndex를 정확히 매칭
+                for (let i = hBaseRow; i < hBaseRow + hHeight; i++) {
+                    const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
+                    targetColumns.forEach(col => {
+                        if (col.frontColumn) {
+                            const colIdx = rowValues.indexOf(col.frontColumn.trim());
+                            if (colIdx !== -1) {
+                                col.excelColIndex = colIdx;
+                            }
+                        }
+                    });
+                }
+
+                set({
+                    selectedHeaderRows: detectedHeaderRows,
+                    headerBaseRow: hBaseRow,
+                    headerHeight: hHeight,
+                    isMappingConfirmed: true,
+                    targetColumns: [...targetColumns]
+                });
+             }
+          }
+
           set({ uploadProgress: 100 })
           setTimeout(() => {
             set({ isUploading: false, uploadProgress: 0 })
@@ -313,12 +370,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       ? rowToValues(allData[headerRowIndices[0]]).map(v => String(v || "").trim())
       : []
 
-    // 백엔드 요청을 위해 userMapping 형식으로 변환
+    // 백엔드 요청을 위해 userMapping 형식으로 변환 (백엔드 API 스펙 유지를 위해 복구)
     const userMapping = targetColumns
       .filter(col => col.frontColumn)
       .map(col => ({
         "front-column": col.frontColumn,
-        "back-column": col.name
+        "back-column": col.backColumn // 시스템 컬럼 ID 매핑
       }))
 
     const templateData = {
@@ -364,6 +421,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         }
         const sorted = Array.from(next).sort((a, b) => a - b)
         const newHeaderBaseRow = sorted.length > 0 ? sorted[0] : prev.headerBaseRow
+        const newHeaderHeight = sorted.length > 0 ? (sorted[sorted.length - 1] - sorted[0] + 1) : 0
 
         const nextCells = new Set(prev.selectedHeaderCells)
         nextCells.forEach((id) => {
@@ -373,6 +431,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         return { 
           selectedHeaderRows: next, 
           headerBaseRow: newHeaderBaseRow,
+          headerHeight: newHeaderHeight,
           selectedHeaderCells: nextCells
         }
       })
@@ -382,9 +441,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         if (next.has(rowIndex)) next.delete(rowIndex)
         else next.add(rowIndex)
         const sorted = Array.from(next).sort((a, b) => a - b)
+        const newSampleBaseRow = sorted.length > 0 ? sorted[0] : prev.sampleBaseRow
+        const newRecordHeight = sorted.length > 0 ? (sorted[sorted.length - 1] - sorted[0] + 1) : 0
         return {
           selectedSampleRows: next,
-          sampleBaseRow: sorted.length > 0 ? sorted[0] : prev.sampleBaseRow
+          sampleBaseRow: newSampleBaseRow,
+          recordHeight: newRecordHeight
         }
       })
     } else if (mode === "ETC") {
@@ -393,9 +455,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         if (next.has(rowIndex)) next.delete(rowIndex)
         else next.add(rowIndex)
         const sorted = Array.from(next).sort((a, b) => a - b)
+        const newEtcBaseRow = sorted.length > 0 ? sorted[0] : prev.etcBaseRow
+        const newEtcHeight = sorted.length > 0 ? (sorted[sorted.length - 1] - sorted[0] + 1) : 0
         return {
           selectedEtcRows: next,
-          etcBaseRow: sorted.length > 0 ? sorted[0] : prev.etcBaseRow
+          etcBaseRow: newEtcBaseRow,
+          etcHeight: newEtcHeight
         }
       })
     }
@@ -599,15 +664,22 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     console.log("데이터 행 데이터:", structuredData)
     console.log("변환된 구조 타입 데이터 (필터링됨):", transformStructuredData)
 
+    const headerHeight = headerRows.length
     const recordHeight = sampleRows.length
+    const etcHeight = etcRows.length
     const flattenedEtc = getStructuredData(etcMatrix, etcBaseRow)
 
     set({
+      headerHeight,
+      recordHeight,
+      etcHeight,
       mappingResult: {
         headersMatrix,
         dataMatrix,
         etcMatrix,
+        headerHeight,
         recordHeight,
+        etcHeight,
         flattenedHeaders: structuredHeaders,
         flattenedData: transformStructuredData,
         flattenedEtc,
