@@ -39,6 +39,8 @@ interface ExcelState {
   etcHeight: number
   targetColumns: TargetColumn[]
   isMappingConfirmed: boolean
+  isAnalysisDone: boolean
+  wasInitialFullMapping: boolean
 }
 
 interface ExcelActions {
@@ -88,6 +90,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   // 백엔드에서 받아온 매핑 대상 컬럼
   targetColumns: [],
   isMappingConfirmed: false,
+  isAnalysisDone: false,
+  wasInitialFullMapping: false,
 
   confirmMappingCompletion: () => set({ isMappingConfirmed: true }),
 
@@ -134,6 +138,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         etcHeight: 0,
         targetColumns: [],
         isMappingConfirmed: false,
+        isAnalysisDone: false,
+        wasInitialFullMapping: false,
       })
     } else {
       get().resetAll()
@@ -180,6 +186,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       etcHeight: 0,
       targetColumns: [],
       isMappingConfirmed: false,
+      isAnalysisDone: false,
+      wasInitialFullMapping: false,
     })
   },
 
@@ -215,13 +223,16 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
            // 첫 청크 로드 시 targetColumns가 서버 응답에 있다면 상태에 저장합니다.
            const backendTargetColumns = response.data.targetColumns || response.data.data?.targetColumns
            if (backendTargetColumns) {
+               // 모든 frontColumn이 null이 아닌지 확인 (수정 모드 노출 여부 결정)
+               const allMapped = backendTargetColumns.length > 0 && backendTargetColumns.every((col: any) => col.frontColumn !== null && col.frontColumn !== undefined)
+               
                // 프론트에서 사용할 수 있도록 frontColumn, excelColIndex를 명시적으로 초기화 (이미 있으면 유지)
                const initializedColumns = backendTargetColumns.map((col: any) => ({
                  ...col,
                  frontColumn: col.frontColumn || null,
                  excelColIndex: col.excelColIndex ?? null
                }))
-               set({ targetColumns: initializedColumns })
+               set({ targetColumns: initializedColumns, wasInitialFullMapping: allMapped })
            }
         }
 
@@ -297,11 +308,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                     });
                 }
 
+                const { wasInitialFullMapping } = get()
                 set({
                     selectedHeaderRows: detectedHeaderRows,
                     headerBaseRow: hBaseRow,
                     headerHeight: hHeight,
-                    isMappingConfirmed: true,
+                    isMappingConfirmed: wasInitialFullMapping, // 모든 컬럼이 매핑된 경우에만 확정 상태로 시작
                     targetColumns: [...targetColumns]
                 });
              }
@@ -687,7 +699,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         flattenedData: transformStructuredData,
         flattenedEtc,
       },
-      mode: null
+      mode: null,
+      isAnalysisDone: true
     })
 
     console.log("filename", fileInfo?.name)

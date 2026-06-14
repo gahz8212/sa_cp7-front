@@ -86,6 +86,8 @@ export function DataGrid() {
     sampleBaseRow,
     targetColumns,
     isMappingConfirmed,
+    isAnalysisDone,
+    wasInitialFullMapping,
     setPage,
     setMode,
     resetSelection,
@@ -115,6 +117,30 @@ export function DataGrid() {
     return map
   }, [mappingResult])
 
+  // 타입 에러가 있는지 전체 데이터(또는 분석된 데이터 범위)에 대해 체크
+  const hasTypeError = useMemo(() => {
+    if (!mappingResult?.flattenedData || !isAnalysisDone) return false
+
+    const recordHeight = mappingResult?.recordHeight || 1
+
+    // 분석된 스키마 정보를 기반으로 모든 데이터 행의 타입을 검증합니다.
+    for (let i = sampleBaseRow; i < allData.length; i++) {
+      const rowValues = rowToValues(allData[i])
+      const relativeRow = (i - sampleBaseRow) % recordHeight
+      const targetSchemaRow = relativeRow + sampleBaseRow
+
+      for (const field of mappingResult.flattenedData) {
+        if (field.row === targetSchemaRow) {
+          const value = String(rowValues[field.col] || "")
+          if (!isValidType(value, field.type)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }, [allData, mappingResult, isAnalysisDone, sampleBaseRow])
+
   const hasHeaderSelected = selectedHeaderRows.size > 0
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -140,7 +166,7 @@ export function DataGrid() {
 
   const onCompleteClick = () => {
     // 1. 구조 해석 자동 실행
-    handleConfirmMapping()
+    // handleConfirmMapping()
 
     // 2. 매핑 완료 체크 및 진행
     const allMapped = targetColumns.every((col) => col.frontColumn)
@@ -164,6 +190,14 @@ export function DataGrid() {
     return targetColumns.filter((c) => !c.frontColumn)
   }, [targetColumns])
 
+  // 수정 완료 버튼 활성화 조건
+  // 1. 구조 해석 버튼을 누른 후여야 함 (isAnalysisDone)
+  // 2. 타입이 맞지 않는 데이터가 없어야 함 (!hasTypeError)
+  // 3. 모든 컬럼 뱃지가 매핑되어야 함 (unmappedColumns.length === 0)
+  const isCompleteButtonDisabled = useMemo(() => {
+    return !isAnalysisDone || hasTypeError || unmappedColumns.length > 0
+  }, [isAnalysisDone, hasTypeError, unmappedColumns])
+
   if (allData.length === 0) {
     return (
       <div className="mt-10 border-2 border-dashed p-10 text-center text-gray-400">
@@ -174,6 +208,72 @@ export function DataGrid() {
 
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {wasInitialFullMapping && (
+        <div className="flex items-center gap-2 cursor-pointer group mb-4">
+          <Checkbox
+            id="edit-mapping-mode"
+            checked={!isMappingConfirmed}
+            onCheckedChange={(checked) => setIsMappingConfirmed(!checked)}
+          />
+          <Label
+            htmlFor="edit-mapping-mode"
+            className="text-sm font-semibold text-gray-700 cursor-pointer group-hover:text-blue-600 transition-colors"
+          >
+            매핑 정보 수정 모드
+          </Label>
+        </div>
+      )}
+      <div className="flex gap-2 p-2 border rounded mb-4 justify-between items-center bg-gray-50/50">
+        <div className="flex items-center gap-6 ml-2">
+          <div className="flex gap-2">
+            <Button
+              variant={mode === "HEADER" ? "primary" : "secondary"}
+              onClick={() => setMode("HEADER")}
+              size="sm"
+            >
+              헤더 선택
+            </Button>
+            <Button
+              variant={mode === "DATA" ? "primary" : "secondary"}
+              onClick={() => setMode("DATA")}
+              size="sm"
+            >
+              데이터 선택
+            </Button>
+            <Button
+              variant={mode === "ETC" ? "primary" : "secondary"}
+              onClick={() => setMode("ETC")}
+              size="sm"
+            >
+              기타 선택
+            </Button>
+            <Button variant="secondary" onClick={resetSelection} size="sm">
+              선택 해제
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="mx-2 border-l h-6" />
+          <Button
+            className="bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-95"
+            onClick={handleConfirmMapping}
+          >
+            구조 해석
+          </Button>
+          <Button
+            className={`shadow-md transition-all active:scale-95 ${
+              isCompleteButtonDisabled
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-700 text-white"
+            }`}
+            onClick={onCompleteClick}
+            disabled={isCompleteButtonDisabled}
+          >
+            수정 완료
+          </Button>
+        </div>
+      </div>
       <div className="mt-6 flex flex-col">
         {/* 백엔드 시스템 컬럼 (D&D Source 영역) - 매핑 완료 시 스르륵 사라짐 */}
         <div
@@ -181,95 +281,42 @@ export function DataGrid() {
             isMappingConfirmed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100 mb-4"
           }`}
         >
-          <div
-            className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
-          >
-            <div className="flex justify-between items-center mb-2">
-              <div
-                className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}
-              >
-                매핑할 시스템 컬럼
-              </div>
-              {!hasHeaderSelected && (
-                <div className="text-xs text-red-500 font-medium">
-                  * 아래 데이터 그리드에서 &apos;헤더&apos; 행을 먼저 선택해주세요.
-                </div>
-              )}
-              {hasHeaderSelected && (
-                <div className="text-xs text-blue-600 font-medium">
-                  드래그하여 아래 선택된 노란색 헤더 셀에 놓으세요.
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 min-h-[28px]">
-              {unmappedColumns.map((col) => (
-                <div
-                  key={col.backColumn}
-                  className={`transition-all duration-200 ${!hasHeaderSelected ? "opacity-40 grayscale pointer-events-none" : ""}`}
-                >
-                  <DraggableBadge col={col} disabled={!hasHeaderSelected} />
-                </div>
-              ))}
-              {unmappedColumns.length === 0 && targetColumns && targetColumns.length > 0 && (
-                <div className="text-sm text-gray-500 italic">모든 컬럼이 매핑되었습니다.</div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-2 p-2 border rounded mb-4 justify-between items-center bg-gray-50/50">
-          <div className="flex items-center gap-6 ml-2">
-            <div className="flex items-center gap-2 cursor-pointer group">
-              <Checkbox
-                id="edit-mapping-mode"
-                checked={!isMappingConfirmed}
-                onCheckedChange={(checked) => setIsMappingConfirmed(!checked)}
-              />
-              <Label
-                htmlFor="edit-mapping-mode"
-                className="text-sm font-semibold text-gray-700 cursor-pointer group-hover:text-blue-600 transition-colors"
-              >
-                매핑 정보 수정 모드
-              </Label>
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                variant={mode === "HEADER" ? "primary" : "secondary"}
-                onClick={() => setMode("HEADER")}
-                size="sm"
-              >
-                헤더 선택
-              </Button>
-              <Button
-                variant={mode === "DATA" ? "primary" : "secondary"}
-                onClick={() => setMode("DATA")}
-                size="sm"
-              >
-                데이터 선택
-              </Button>
-              <Button
-                variant={mode === "ETC" ? "primary" : "secondary"}
-                onClick={() => setMode("ETC")}
-                size="sm"
-              >
-                기타 선택
-              </Button>
-              <Button variant="secondary" onClick={resetSelection} size="sm">
-                선택 해제
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="mx-2 border-l h-6" />
-            <Button
-              className="bg-red-600 hover:bg-red-700 text-white shadow-md transition-all active:scale-95"
-              onClick={onCompleteClick}
+          {(!wasInitialFullMapping || !isMappingConfirmed) && (
+            <div
+              className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
             >
-              수정 완료
-            </Button>
-          </div>
+              <div className="flex justify-between items-center mb-2">
+                <div
+                  className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}
+                >
+                  매핑할 시스템 컬럼
+                </div>
+                {!hasHeaderSelected && (
+                  <div className="text-xs text-red-500 font-medium">
+                    * 아래 데이터 그리드에서 &apos;헤더&apos; 행을 먼저 선택해주세요.
+                  </div>
+                )}
+                {hasHeaderSelected && (
+                  <div className="text-xs text-blue-600 font-medium">
+                    드래그하여 아래 선택된 노란색 헤더 셀에 놓으세요.
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 min-h-[28px]">
+                {unmappedColumns.map((col) => (
+                  <div
+                    key={col.backColumn}
+                    className={`transition-all duration-200 ${!hasHeaderSelected ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                  >
+                    <DraggableBadge col={col} disabled={!hasHeaderSelected} />
+                  </div>
+                ))}
+                {unmappedColumns.length === 0 && targetColumns && targetColumns.length > 0 && (
+                  <div className="text-sm text-gray-500 italic">모든 컬럼이 매핑되었습니다.</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto w-full border border-gray-200 ">
