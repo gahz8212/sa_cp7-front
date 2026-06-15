@@ -13,6 +13,7 @@ interface TargetColumn {
   required: boolean
   frontColumn?: string | null // 매핑된 엑셀 컬럼명
   excelColIndex?: number | null // 매핑된 엑셀 컬럼 인덱스
+  relativeRowIndex?: number | null // 매핑된 엑셀 상대 행 인덱스 (헤더 내 위치)
 }
 
 interface ExcelState {
@@ -60,7 +61,7 @@ interface ExcelActions {
   handleCellEdit: (rowIndex: number, colIndex: number, newValue: string) => void
   setMappingResult: (result: any) => void
   setTargetColumns: (columns: TargetColumn[]) => void
-  updateColumnMapping: (backColumn: string, frontColumn: string | null, colIndex: number | null) => void
+  updateColumnMapping: (backColumn: string, frontColumn: string | null, colIndex: number | null, relativeRowIndex?: number | null) => void
   confirmMappingCompletion: () => void
   setIsMappingConfirmed: (isConfirmed: boolean) => void
 }
@@ -99,15 +100,15 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
   setTargetColumns: (columns) => set({ targetColumns: columns }),
   
-  updateColumnMapping: (backColumn, frontColumn, colIndex) => set((prev) => {
+  updateColumnMapping: (backColumn, frontColumn, colIndex, relativeRowIndex) => set((prev) => {
     const nextTargetColumns = prev.targetColumns.map((col) => {
       // 1. 해당 시스템 컬럼의 매핑 정보를 업데이트
       if (col.backColumn === backColumn) {
-        return { ...col, frontColumn, excelColIndex: colIndex }
+        return { ...col, frontColumn, excelColIndex: colIndex, relativeRowIndex }
       }
-      // 2. 다른 시스템 컬럼이 이미 이 엑셀 컬럼에 매핑되어 있었다면 해제 (1:1 매핑 유지)
-      if (frontColumn && col.frontColumn === frontColumn && col.excelColIndex === colIndex) {
-        return { ...col, frontColumn: null, excelColIndex: null }
+      // 2. 다른 시스템 컬럼이 이미 이 위치(행, 열)에 매핑되어 있었다면 해제 (1:1 매핑 유지)
+      if (frontColumn && col.frontColumn === frontColumn && col.excelColIndex === colIndex && col.relativeRowIndex === relativeRowIndex) {
+        return { ...col, frontColumn: null, excelColIndex: null, relativeRowIndex: null }
       }
       return col
     })
@@ -303,6 +304,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                              const colIdx = rowValues.indexOf(col.frontColumn.trim());
                              if (colIdx !== -1) {
                                  col.excelColIndex = colIdx;
+                                 col.relativeRowIndex = i - hBaseRow;
                              }
                          }
                      });
@@ -365,6 +367,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                                 const colIdx = rowValues.indexOf(col.frontColumn.trim());
                                 if (colIdx !== -1) {
                                     col.excelColIndex = colIdx;
+                                    col.relativeRowIndex = i - hBaseRow;
                                 }
                             }
                         });
@@ -437,6 +440,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       headerBaseRow, 
       sampleBaseRow,
       etcBaseRow,
+      recordHeight,
       mappingResult,
       fileInfo
     } = get()
@@ -473,6 +477,33 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     const etcRowIndices = Array.from(selectedEtcRows).sort((a, b) => a - b)
     const etcEndRow = etcRowIndices.length > 0 ? etcRowIndices[etcRowIndices.length - 1] : etcBaseRow
 
+    // 3. 실제 입력할 데이터 배열 생성 (데이터 영역의 모든 레코드 대상)
+    // recordHeight가 2라면, 2행이 하나의 데이터 세트임
+    const mappedData: any[] = [];
+    for (let i = sampleBaseRow; i < allData.length; i += recordHeight || 1) {
+      const recordRows = allData.slice(i, i + (recordHeight || 1));
+      
+      const recordData = targetColumns
+        .filter(col => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined)
+        .map(col => {
+          // relativeRowIndex가 지정되어 있다면 해당 행에서 값을 가져오고, 없으면 첫 행에서 가져옴
+          const targetRow = recordRows[col.relativeRowIndex || 0];
+          const rowValues = targetRow ? rowToValues(targetRow) : [];
+          const cellValue = String(rowValues[col.excelColIndex!] || "").trim();
+          
+          return {
+            "front-column": col.frontColumn,
+            "back-column": col.backColumn,
+            "value": cellValue
+          };
+        })
+        .filter(item => item.value !== ""); // value가 빈 문자열이면 제외
+
+      if (recordData.length > 0) {
+        mappedData.push(recordData);
+      }
+    }
+
     // 선택된 헤더 행(첫 번째 줄)의 모든 컬럼 값을 가져옵니다.
     const originalHeaderColumns = headerRowIndices.length > 0 
       ? rowToValues(allData[headerRowIndices[0]]).map(v => String(v || "").trim())
@@ -504,11 +535,13 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
     console.log("Modified Data:", changes)
     console.log("Generated Template Data:", templateData)
+    console.log("Mapped Data (Actual values):", mappedData)
 
-    if (changes.length > 0 || userMapping.length > 0) {
+    if (changes.length > 0 || userMapping.length > 0 || mappedData.length > 0) {
       axios.post("/api/common/save-excel-data-and-template", { 
         modifiedRows: changes,
-        template: templateData
+        template: templateData,
+        mappedData: mappedData // 실제 매핑된 데이터 전송
       }).then(() => {
         alert("데이터와 매핑 템플릿이 성공적으로 저장되었습니다.")
       }).catch(err => {

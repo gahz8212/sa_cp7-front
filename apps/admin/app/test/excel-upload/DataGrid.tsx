@@ -84,6 +84,7 @@ export function DataGrid() {
     selectedSampleRows,
     selectedEtcRows,
     sampleBaseRow,
+    headerBaseRow,
     targetColumns,
     isMappingConfirmed,
     isAnalysisDone,
@@ -117,29 +118,66 @@ export function DataGrid() {
     return map
   }, [mappingResult])
 
+  // 실제 데이터가 있는 마지막 행 인덱스 계산 (매핑된 컬럼들 기준)
+  const lastContentRowIndex = useMemo(() => {
+    // 1. 현재 매핑된 엑셀 컬럼 인덱스들만 추출
+    const mappedExcelIndices = targetColumns
+      .filter((col) => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined)
+      .map((col) => col.excelColIndex as number)
+
+    if (mappedExcelIndices.length === 0) return -1
+
+    // 2. 뒤에서부터 스캔하며 매핑된 열 중 하나라도 데이터가 들어있는 첫 번째 행을 찾음
+    for (let i = allData.length - 1; i >= sampleBaseRow; i--) {
+      const rowValues = rowToValues(allData[i])
+      // 매핑된 열들 중에서 비어있지 않은 값이 하나라도 있는지 확인
+      const hasDataInMappedCols = mappedExcelIndices.some((colIdx) => {
+        const value = String(rowValues[colIdx] || "").trim()
+        return value !== ""
+      })
+
+      if (hasDataInMappedCols) {
+        return i
+      }
+    }
+    return -1
+  }, [allData, targetColumns, sampleBaseRow])
+
   // 타입 에러가 있는지 전체 데이터(또는 분석된 데이터 범위)에 대해 체크
   const hasTypeError = useMemo(() => {
-    if (!mappingResult?.flattenedData || !isAnalysisDone) return false
+    if (!isAnalysisDone || lastContentRowIndex === -1) return false
 
     const recordHeight = mappingResult?.recordHeight || 1
 
-    // 분석된 스키마 정보를 기반으로 모든 데이터 행의 타입을 검증합니다.
-    for (let i = sampleBaseRow; i < allData.length; i++) {
-      const rowValues = rowToValues(allData[i])
-      const relativeRow = (i - sampleBaseRow) % recordHeight
-      const targetSchemaRow = relativeRow + sampleBaseRow
+    // 매핑된 컬럼들에 대해서만 실제 데이터 블록별로 검증을 수행합니다.
+    // 데이터가 있는 마지막 행(lastContentRowIndex)까지만 검사합니다.
+    for (let i = sampleBaseRow; i <= lastContentRowIndex; i += recordHeight) {
+      const recordRows = allData.slice(i, i + recordHeight)
+      
+      for (const col of targetColumns) {
+        // 매핑 정보가 있는 경우에만 검증
+        if (col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined) {
+          const relativeRow = col.relativeRowIndex || 0
+          const targetRow = recordRows[relativeRow]
+          const rowValues = targetRow ? rowToValues(targetRow) : []
+          const cellValue = String(rowValues[col.excelColIndex] || "").trim()
 
-      for (const field of mappingResult.flattenedData) {
-        if (field.row === targetSchemaRow) {
-          const value = String(rowValues[field.col] || "")
-          if (!isValidType(value, field.type)) {
+          // 1. 필수 값 체크 (빈 값이어도 표시하기 위해)
+          if (col.required && cellValue === "") {
+            return true
+          }
+
+          // 2. 타입 검증 (구조 해석 결과가 있는 경우)
+          const targetSchemaRow = relativeRow + sampleBaseRow
+          const fieldSchema = schemaLookup.get(`${targetSchemaRow}-${col.excelColIndex}`)
+          if (cellValue !== "" && fieldSchema && !isValidType(cellValue, fieldSchema.type)) {
             return true
           }
         }
       }
     }
     return false
-  }, [allData, mappingResult, isAnalysisDone, sampleBaseRow])
+  }, [allData, mappingResult, isAnalysisDone, sampleBaseRow, targetColumns, schemaLookup, lastContentRowIndex])
 
   const hasHeaderSelected = selectedHeaderRows.size > 0
 
@@ -160,7 +198,10 @@ export function DataGrid() {
       const rowValues = rowToValues(allData[r])
       const excelHeaderName = String(rowValues[c] || "")
 
-      updateColumnMapping(String(active.id), excelHeaderName, c)
+      // 헤더 시작 행으로부터의 상대적 위치 계산
+      const relativeRow = r - headerBaseRow
+
+      updateColumnMapping(String(active.id), excelHeaderName, c, relativeRow)
     }
   }
 
@@ -348,10 +389,20 @@ export function DataGrid() {
 
                       const fieldSchema = schemaLookup.get(`${targetSchemaRow}-${colIndex}`)
 
+                      // 해당 위치(열, 상대행)에 매핑된 시스템 컬럼이 있는지 확인
+                      const mappedCol = targetColumns.find(
+                        (col) =>
+                          col.excelColIndex === colIndex && col.relativeRowIndex === relativeRow,
+                      )
+
                       const isInvalid =
                         rowIndex >= sampleBaseRow &&
-                        fieldSchema &&
-                        !isValidType(String(cell), fieldSchema.type)
+                        rowIndex <= lastContentRowIndex && // 실제 데이터가 있는 행까지만 검증
+                        mappedCol && // 매핑된 칸만 검증
+                        ((mappedCol.required && String(cell || "").trim() === "") || // 필수 값 누락 체크
+                          (fieldSchema &&
+                            String(cell || "").trim() !== "" &&
+                            !isValidType(String(cell), fieldSchema.type))) // 타입 불일치 체크
 
                       const isCellWhite = selectedHeaderCells.has(`${rowIndex}-${colIndex}`)
                       const isHeaderRowSelected = selectedHeaderRows.has(rowIndex)
