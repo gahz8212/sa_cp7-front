@@ -273,49 +273,133 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         })
 
         if (isInitial) {
-          const { targetColumns } = get()
+          const { targetColumns, wasInitialFullMapping } = get()
           const mappedColumns = targetColumns.filter(col => col.frontColumn)
           
           if (mappedColumns.length > 0) {
-             const detectedHeaderRows = new Set<number>();
+             const savedHeaderStructure = response.data.headerStructure || response.data.data?.headerStructure;
 
-             // 1. 먼저 상위 20행을 스캔하여 '대표 헤더 행'을 찾고 영역을 추정함
-             // (이 작업은 headerBaseRow와 headerHeight를 확정하기 위함)
-             for (let i = 0; i < Math.min(newRows.length, 20); i++) {
-                const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
-                targetColumns.forEach(col => {
-                    if (col.frontColumn && rowValues.includes(col.frontColumn.trim())) {
-                        detectedHeaderRows.add(i);
-                    }
-                });
-             }
+             if (savedHeaderStructure) {
+                 // 백엔드에서 저장된 headerStructure를 함께 보내준 경우 (저장된 정보 우선 사용)
+                 const hBaseRow = savedHeaderStructure.headerStartRow || 0;
+                 const hEndRow = savedHeaderStructure.headerEndRow !== undefined ? savedHeaderStructure.headerEndRow : hBaseRow;
+                 const sBaseRow = savedHeaderStructure.dataStartRow || (hEndRow + 1);
+                 const sEndRow = savedHeaderStructure.dataEndRow !== undefined ? savedHeaderStructure.dataEndRow : sBaseRow;
+                 
+                 const eBaseRow = savedHeaderStructure.etcStartRow !== undefined ? savedHeaderStructure.etcStartRow : 0;
+                 const eEndRow = savedHeaderStructure.etcEndRow !== undefined ? savedHeaderStructure.etcEndRow : (hBaseRow > 0 ? hBaseRow - 1 : -1);
 
-             if (detectedHeaderRows.size > 0) {
-                const sortedRows = Array.from(detectedHeaderRows).sort((a, b) => a - b);
-                const hBaseRow = sortedRows[0];
-                const hHeight = sortedRows.length; // 연속된 행이라고 가정 (또는 마지막-처음 + 1)
+                 const detectedHeaderRows = new Set<number>();
+                 for (let i = hBaseRow; i <= hEndRow; i++) {
+                     detectedHeaderRows.add(i);
+                 }
+                 const hHeight = hEndRow - hBaseRow + 1;
 
-                // 2. 확정된 헤더 영역 내에서 각 컬럼의 excelColIndex를 정확히 매칭
-                for (let i = hBaseRow; i < hBaseRow + hHeight; i++) {
+                 // 확정된 헤더 영역 내에서 excelColIndex 매칭
+                 for (let i = hBaseRow; i <= hEndRow && i < newRows.length; i++) {
+                     const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
+                     targetColumns.forEach(col => {
+                         if (col.frontColumn) {
+                             const colIdx = rowValues.indexOf(col.frontColumn.trim());
+                             if (colIdx !== -1) {
+                                 col.excelColIndex = colIdx;
+                             }
+                         }
+                     });
+                 }
+
+                 const detectedSampleRows = new Set<number>();
+                 if (sBaseRow < newRows.length) {
+                     for (let i = sBaseRow; i <= sEndRow && i < newRows.length; i++) {
+                         detectedSampleRows.add(i);
+                     }
+                 }
+
+                 const detectedEtcRows = new Set<number>();
+                 if (eEndRow >= eBaseRow) {
+                     for (let i = eBaseRow; i <= eEndRow && i < newRows.length; i++) {
+                         detectedEtcRows.add(i);
+                     }
+                 }
+
+                 set({
+                     selectedHeaderRows: detectedHeaderRows,
+                     headerBaseRow: hBaseRow,
+                     headerHeight: hHeight,
+
+                     selectedSampleRows: detectedSampleRows,
+                     sampleBaseRow: detectedSampleRows.size > 0 ? sBaseRow : 0,
+                     recordHeight: detectedSampleRows.size > 0 ? (sEndRow - sBaseRow + 1) : 0,
+
+                     selectedEtcRows: detectedEtcRows,
+                     etcBaseRow: detectedEtcRows.size > 0 ? eBaseRow : 0,
+                     etcHeight: detectedEtcRows.size > 0 ? (eEndRow - eBaseRow + 1) : 0,
+
+                     isMappingConfirmed: wasInitialFullMapping,
+                     targetColumns: [...targetColumns]
+                 });
+             } else {
+                 const detectedHeaderRows = new Set<number>();
+
+                 // 1. 먼저 상위 20행을 스캔하여 '대표 헤더 행'을 찾고 영역을 추정함
+                 // (이 작업은 headerBaseRow와 headerHeight를 확정하기 위함)
+                 for (let i = 0; i < Math.min(newRows.length, 20); i++) {
                     const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
                     targetColumns.forEach(col => {
-                        if (col.frontColumn) {
-                            const colIdx = rowValues.indexOf(col.frontColumn.trim());
-                            if (colIdx !== -1) {
-                                col.excelColIndex = colIdx;
-                            }
+                        if (col.frontColumn && rowValues.includes(col.frontColumn.trim())) {
+                            detectedHeaderRows.add(i);
                         }
                     });
-                }
+                 }
 
-                const { wasInitialFullMapping } = get()
-                set({
-                    selectedHeaderRows: detectedHeaderRows,
-                    headerBaseRow: hBaseRow,
-                    headerHeight: hHeight,
-                    isMappingConfirmed: wasInitialFullMapping, // 모든 컬럼이 매핑된 경우에만 확정 상태로 시작
-                    targetColumns: [...targetColumns]
-                });
+                 if (detectedHeaderRows.size > 0) {
+                    const sortedRows = Array.from(detectedHeaderRows).sort((a, b) => a - b);
+                    const hBaseRow = sortedRows[0];
+                    const hHeight = sortedRows.length; // 연속된 행이라고 가정 (또는 마지막-처음 + 1)
+
+                    // 2. 확정된 헤더 영역 내에서 각 컬럼의 excelColIndex를 정확히 매칭
+                    for (let i = hBaseRow; i < hBaseRow + hHeight; i++) {
+                        const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
+                        targetColumns.forEach(col => {
+                            if (col.frontColumn) {
+                                const colIdx = rowValues.indexOf(col.frontColumn.trim());
+                                if (colIdx !== -1) {
+                                    col.excelColIndex = colIdx;
+                                }
+                            }
+                        });
+                    }
+
+                    // 3. 데이터 영역 자동 추정 (헤더 바로 다음 행부터 데이터라고 가정)
+                    const detectedSampleRows = new Set<number>();
+                    const sBaseRow = hBaseRow + hHeight;
+                    if (sBaseRow < newRows.length) {
+                        detectedSampleRows.add(sBaseRow);
+                    }
+
+                    // 4. 기타 영역 자동 추정 (헤더 이전의 행들을 기타 영역으로 가정)
+                    const detectedEtcRows = new Set<number>();
+                    for (let i = 0; i < hBaseRow; i++) {
+                        detectedEtcRows.add(i);
+                    }
+
+                    set({
+                        selectedHeaderRows: detectedHeaderRows,
+                        headerBaseRow: hBaseRow,
+                        headerHeight: hHeight,
+
+                        selectedSampleRows: detectedSampleRows,
+                        sampleBaseRow: detectedSampleRows.size > 0 ? sBaseRow : 0,
+                        recordHeight: detectedSampleRows.size > 0 ? 1 : 0,
+
+                        selectedEtcRows: detectedEtcRows,
+                        etcBaseRow: detectedEtcRows.size > 0 ? 0 : 0,
+                        etcHeight: detectedEtcRows.size > 0 ? hBaseRow : 0,
+
+                        isMappingConfirmed: wasInitialFullMapping, // 모든 컬럼이 매핑된 경우에만 확정 상태로 시작
+                        targetColumns: [...targetColumns]
+                    });
+                 }
              }
           }
 
@@ -348,8 +432,11 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       allOriginalData, 
       targetColumns, 
       selectedHeaderRows, 
+      selectedSampleRows,
+      selectedEtcRows,
       headerBaseRow, 
       sampleBaseRow,
+      etcBaseRow,
       mappingResult,
       fileInfo
     } = get()
@@ -380,6 +467,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     const headerRowIndices = Array.from(selectedHeaderRows).sort((a, b) => a - b)
     const headerEndRow = headerRowIndices.length > 0 ? headerRowIndices[headerRowIndices.length - 1] : headerBaseRow
     
+    const sampleRowIndices = Array.from(selectedSampleRows).sort((a, b) => a - b)
+    const dataEndRow = sampleRowIndices.length > 0 ? sampleRowIndices[sampleRowIndices.length - 1] : sampleBaseRow
+
+    const etcRowIndices = Array.from(selectedEtcRows).sort((a, b) => a - b)
+    const etcEndRow = etcRowIndices.length > 0 ? etcRowIndices[etcRowIndices.length - 1] : etcBaseRow
+
     // 선택된 헤더 행(첫 번째 줄)의 모든 컬럼 값을 가져옵니다.
     const originalHeaderColumns = headerRowIndices.length > 0 
       ? rowToValues(allData[headerRowIndices[0]]).map(v => String(v || "").trim())
@@ -400,6 +493,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         headerStartRow: headerBaseRow,
         headerEndRow: headerEndRow,
         dataStartRow: sampleBaseRow,
+        dataEndRow: dataEndRow,
+        etcStartRow: etcBaseRow,
+        etcEndRow: etcEndRow,
         originalHeaderColumns: originalHeaderColumns
       },
       userMapping: userMapping,
@@ -633,34 +729,42 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     }
 
     function mergeHeaderAndType(headers: any[], types: any[]) {
-      const diff = headers.length - types.length
+      const mergedList: any[] = [];
+      const cols = new Set([...headers.map(h => h.col), ...types.map(t => t.col)]);
+      
+      cols.forEach(col => {
+        const colHeaders = headers.filter(h => h.col === col);
+        const colTypes = types.filter(t => t.col === col);
+        
+        const header = colHeaders.length > 0 ? colHeaders[0] : { value: "" };
+        const { value, ...restHeader } = header;
 
-      return headers.map((header, index) => {
-        let typeInfo
-        if (diff > 0 && index >= types.length) {
-          typeInfo = types[index - diff]
+        if (colTypes.length > 0) {
+           colTypes.forEach(typeInfo => {
+             const merged: any = {
+                column: value,
+                ...restHeader,
+                type: typeInfo.type,
+                row: typeInfo.row,
+                col: col,
+             };
+             if (typeInfo.pattern) merged.pattern = typeInfo.pattern;
+             if (typeInfo.rowspan) merged.rowspan = typeInfo.rowspan;
+             if (typeInfo.colspan) merged.colspan = typeInfo.colspan;
+             mergedList.push(merged);
+           });
         } else {
-          typeInfo = types[index]
+           const merged: any = {
+              column: value,
+              ...restHeader,
+              type: "string",
+              row: sampleBaseRow,
+              col: col
+           };
+           mergedList.push(merged);
         }
-
-        const { value, ...rest } = header
-        const merged: any = {
-          column: value,
-          ...rest,
-          row: typeInfo?.row ?? sampleBaseRow
-        }
-
-        if (typeInfo) {
-          merged.type = typeInfo.type
-          if (typeInfo.pattern) merged.pattern = typeInfo.pattern
-          if (typeInfo.rowspan) merged.rowspan = typeInfo.rowspan
-          if (typeInfo.colspan) merged.colspan = typeInfo.colspan
-        } else {
-          merged.type = "string"
-        }
-
-        return merged
-      })
+      });
+      return mergedList;
     }
 
     const structuredHeaders = getStructuredData(headersMatrix, headerBaseRow)

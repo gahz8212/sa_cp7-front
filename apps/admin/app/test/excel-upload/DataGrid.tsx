@@ -210,13 +210,14 @@ export function DataGrid() {
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       {wasInitialFullMapping && (
         <div className="flex items-center gap-2 cursor-pointer group mb-4">
-          <Checkbox
-            id="edit-mapping-mode"
+          <input
+            type="checkbox"
+            id="mapping-confirmation"
             checked={!isMappingConfirmed}
-            onCheckedChange={(checked) => setIsMappingConfirmed(!checked)}
+            onChange={(e) => setIsMappingConfirmed(!e.target.checked)}
+            className="w-4 h-4 cursor-pointer"
           />
-          <Label
-            htmlFor="edit-mapping-mode"
+          <Label htmlFor="mapping-confirmation"
             className="text-sm font-semibold text-gray-700 cursor-pointer group-hover:text-blue-600 transition-colors"
           >
             매핑 정보 수정 모드
@@ -259,7 +260,7 @@ export function DataGrid() {
             className="bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-95"
             onClick={handleConfirmMapping}
           >
-            구조 해석
+            데이터 검증
           </Button>
           <Button
             className={`shadow-md transition-all active:scale-95 ${
