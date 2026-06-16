@@ -204,7 +204,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
       const formData = new FormData()
       formData.append("file", file)
-      formData.append("rowNo", "0")
+      formData.append("rowNo", "-1")
       formData.append("sheetNo", "0")
       formData.append("page", (chunkIndex + 1).toString())
       formData.append("size", "1000")
@@ -487,7 +487,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         .filter(col => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined)
         .map(col => {
           // relativeRowIndex가 지정되어 있다면 해당 행에서 값을 가져오고, 없으면 첫 행에서 가져옴
-          const targetRow = recordRows[col.relativeRowIndex || 0];
+          const targetRow = recordRows[recordHeight === 1 ? 0 : (col.relativeRowIndex || 0)];
           const rowValues = targetRow ? rowToValues(targetRow) : [];
           const cellValue = String(rowValues[col.excelColIndex!] || "").trim();
           
@@ -801,25 +801,25 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     }
 
     const structuredHeaders = getStructuredData(headersMatrix, headerBaseRow)
-    const filteredStructuredHeaders = structuredHeaders.filter(
-      (h) => !selectedHeadersValues.has(h.value),
-    )
-    const structuredData = getStructuredData(dataMatrix, sampleBaseRow)
-    const transformStructuredData = mergeHeaderAndType(
-      [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
-      getStructuredType(dataMatrix, sampleBaseRow).sort(
-        (a, b) => a.row - b.row || a.col - b.col,
-      ),
-    )
+    // const filteredStructuredHeaders = structuredHeaders.filter(
+    //   (h) => !selectedHeadersValues.has(h.value),
+    // )
+    // const structuredData = getStructuredData(dataMatrix, sampleBaseRow)
+    // const transformStructuredData = mergeHeaderAndType(
+    //   [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
+    //   getStructuredType(dataMatrix, sampleBaseRow).sort(
+    //     (a, b) => a.row - b.row || a.col - b.col,
+    //   ),
+    // )
 
-    console.log("헤더 행 데이터 :", structuredHeaders)
-    console.log("데이터 행 데이터:", structuredData)
-    console.log("변환된 구조 타입 데이터 (필터링됨):", transformStructuredData)
+    // console.log("헤더 행 데이터 :", structuredHeaders)
+    // console.log("데이터 행 데이터:", structuredData)
+    // console.log("변환된 구조 타입 데이터 (필터링됨):", transformStructuredData)
 
     const headerHeight = headerRows.length
     const recordHeight = sampleRows.length
     const etcHeight = etcRows.length
-    const flattenedEtc = getStructuredData(etcMatrix, etcBaseRow)
+    // const flattenedEtc = getStructuredData(etcMatrix, etcBaseRow)
 
     set({
       headerHeight,
@@ -832,9 +832,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         headerHeight,
         recordHeight,
         etcHeight,
-        flattenedHeaders: structuredHeaders,
-        flattenedData: transformStructuredData,
-        flattenedEtc,
+        // flattenedHeaders: structuredHeaders,
+        // flattenedData: transformStructuredData,
+        // flattenedEtc,
       },
       mode: null,
       isAnalysisDone: true
@@ -844,9 +844,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
     axios.post("/api/common/analyze-excel-structure", {
       fileName: fileInfo?.name,
-      flattenedHeaders: structuredHeaders,
-      flattenedData: transformStructuredData,
-      flattenedEtc,
+      // flattenedHeaders: structuredHeaders,
+      // flattenedData: transformStructuredData,
+      // flattenedEtc,
     })
   },
 

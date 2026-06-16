@@ -157,7 +157,7 @@ export function DataGrid() {
       for (const col of targetColumns) {
         // 매핑 정보가 있는 경우에만 검증
         if (col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined) {
-          const relativeRow = col.relativeRowIndex || 0
+          const relativeRow = recordHeight === 1 ? 0 : (col.relativeRowIndex || 0)
           const targetRow = recordRows[relativeRow]
           const rowValues = targetRow ? rowToValues(targetRow) : []
           const cellValue = String(rowValues[col.excelColIndex] || "").trim()
@@ -392,7 +392,7 @@ export function DataGrid() {
                       // 해당 위치(열, 상대행)에 매핑된 시스템 컬럼이 있는지 확인
                       const mappedCol = targetColumns.find(
                         (col) =>
-                          col.excelColIndex === colIndex && col.relativeRowIndex === relativeRow,
+                          col.excelColIndex === colIndex && (recordHeight === 1 ? true : col.relativeRowIndex === relativeRow),
                       )
 
                       const isInvalid =
