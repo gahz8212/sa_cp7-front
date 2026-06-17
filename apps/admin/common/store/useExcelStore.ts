@@ -204,7 +204,6 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
       const formData = new FormData()
       formData.append("file", file)
-      formData.append("rowNo", "-1")
       formData.append("sheetNo", "0")
       formData.append("page", (chunkIndex + 1).toString())
       formData.append("size", "1000")
@@ -518,29 +517,30 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       }))
 
     const templateData = {
-      targetSysType: mappingResult?.targetSysType || "UNKNOWN",
+      // targetSysType: mappingResult?.targetSysType || "UNKNOWN",
       fileName: fileInfo?.name,
-      headerStructure: {
+      structures: {
         headerStartRow: headerBaseRow,
         headerEndRow: headerEndRow,
         dataStartRow: sampleBaseRow,
         dataEndRow: dataEndRow,
         etcStartRow: etcBaseRow,
         etcEndRow: etcEndRow,
-        originalHeaderColumns: originalHeaderColumns
+        // originalHeaderColumns: originalHeaderColumns
       },
-      userMapping: userMapping,
+      // userMapping: userMapping,
       targetColumns: targetColumns // 통합된 전체 데이터 전송
     }
 
     console.log("Modified Data:", changes)
     console.log("Generated Template Data:", templateData)
-    console.log("Mapped Data (Actual values):", mappedData)
+    console.log("To db of BackEnd (Actual values):", mappedData)
 
     if (changes.length > 0 || userMapping.length > 0 || mappedData.length > 0) {
+      
       axios.post("/api/common/save-excel-data-and-template", { 
         modifiedRows: changes,
-        template: templateData,
+        templateData: templateData,
         mappedData: mappedData // 실제 매핑된 데이터 전송
       }).then(() => {
         alert("데이터와 매핑 템플릿이 성공적으로 저장되었습니다.")
@@ -801,20 +801,20 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     }
 
     const structuredHeaders = getStructuredData(headersMatrix, headerBaseRow)
-    // const filteredStructuredHeaders = structuredHeaders.filter(
-    //   (h) => !selectedHeadersValues.has(h.value),
-    // )
+    const filteredStructuredHeaders = structuredHeaders.filter(
+      (h) => !selectedHeadersValues.has(h.value),
+    )
     // const structuredData = getStructuredData(dataMatrix, sampleBaseRow)
-    // const transformStructuredData = mergeHeaderAndType(
-    //   [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
-    //   getStructuredType(dataMatrix, sampleBaseRow).sort(
-    //     (a, b) => a.row - b.row || a.col - b.col,
-    //   ),
-    // )
+    const transformStructuredData = mergeHeaderAndType(
+      [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
+      getStructuredType(dataMatrix, sampleBaseRow).sort(
+        (a, b) => a.row - b.row || a.col - b.col,
+      ),
+    )
 
-    // console.log("헤더 행 데이터 :", structuredHeaders)
+    console.log("헤더 행 데이터 :", structuredHeaders)
     // console.log("데이터 행 데이터:", structuredData)
-    // console.log("변환된 구조 타입 데이터 (필터링됨):", transformStructuredData)
+    console.log("변환된 구조 타입 데이터 (필터링됨):", transformStructuredData)
 
     const headerHeight = headerRows.length
     const recordHeight = sampleRows.length
@@ -833,7 +833,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         recordHeight,
         etcHeight,
         // flattenedHeaders: structuredHeaders,
-        // flattenedData: transformStructuredData,
+        flattenedData: transformStructuredData,
         // flattenedEtc,
       },
       mode: null,
@@ -844,17 +844,32 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
     axios.post("/api/common/analyze-excel-structure", {
       fileName: fileInfo?.name,
-      // flattenedHeaders: structuredHeaders,
-      // flattenedData: transformStructuredData,
-      // flattenedEtc,
     })
   },
 
   handleCellEdit: (rowIndex: number, colIndex: number, newValue: string) => {
     set((prev) => {
       const list = [...prev.allData]
-      const row = { ...list[rowIndex] }
 
+      // Ensure the row exists. If not, create it and any necessary intermediate rows.
+      if (rowIndex >= list.length) {
+        const firstRow = list[0] || {}
+        const key = Object.keys(firstRow).find((k) => Array.isArray(firstRow[k]))
+        const colCount = key ? firstRow[key].length : Object.keys(firstRow).length
+
+        for (let i = list.length; i <= rowIndex; i++) {
+          const newRow: any = {}
+          if (key) {
+            newRow[key] = Array(colCount).fill("")
+          } else {
+            // If not array-based, try to follow the structure of existing rows
+            Object.keys(firstRow).forEach((k) => (newRow[k] = ""))
+          }
+          list[i] = newRow
+        }
+      }
+
+      const row = { ...list[rowIndex] }
       const key = Object.keys(row).find((k) => Array.isArray(row[k]))
       if (key) {
         row[key] = [...row[key]]
@@ -864,7 +879,10 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         row[keys[colIndex]] = newValue
       }
       list[rowIndex] = row
-      return { allData: list }
+      return {
+        allData: list,
+        totalCount: Math.max(prev.totalCount, list.length),
+      }
     })
-  }
+  },
 }))
