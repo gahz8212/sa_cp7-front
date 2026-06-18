@@ -19,7 +19,7 @@ export function UploadPanel() {
       <input ref={fileInputRef} type="file" accept=".xlsx, .xls" onChange={handleFileChange} />
       <div className="flex gap-2">
         <Button onClick={handleUpload} disabled={!file}>
-          전송
+          화면 출력
         </Button>
         <Button
           variant="secondary"

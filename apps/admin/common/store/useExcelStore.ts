@@ -94,9 +94,20 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   isAnalysisDone: false,
   wasInitialFullMapping: false,
 
-  confirmMappingCompletion: () => set({ isMappingConfirmed: true }),
+  confirmMappingCompletion: () => {
+    const allMapped = get().targetColumns.every((col) => col.frontColumn)
+    if (allMapped) {
+      set({ isMappingConfirmed: true })
+    }
+  },
 
-  setIsMappingConfirmed: (isMappingConfirmed) => set({ isMappingConfirmed }),
+  setIsMappingConfirmed: (isMappingConfirmed) => {
+    if (isMappingConfirmed) {
+      const allMapped = get().targetColumns.every((col) => col.frontColumn)
+      if (!allMapped) return
+    }
+    set({ isMappingConfirmed })
+  },
 
   setTargetColumns: (columns) => set({ targetColumns: columns }),
   
@@ -112,8 +123,14 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       }
       return col
     })
+
+    // 매핑이 변경되었으므로 자동 검증 트리거
+    setTimeout(() => {
+      get().handleConfirmMapping()
+    }, 0)
+
     return { targetColumns: nextTargetColumns, isMappingConfirmed: false }
-  }),
+    }),
 
   setFile: (file) => {
     if (file) {
@@ -232,9 +249,16 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                  frontColumn: col.frontColumn || null,
                  excelColIndex: col.excelColIndex ?? null
                }))
-               set({ targetColumns: initializedColumns, wasInitialFullMapping: allMapped })
-           }
-        }
+               set({ targetColumns: initializedColumns, wasInitialFullMapping: allMapped, isMappingConfirmed: allMapped })
+
+               // 자동 검증 실행: 매핑 정보가 있는 경우에만
+               if (allMapped) {
+                 setTimeout(() => {
+                   get().handleConfirmMapping()
+                 }, 0)
+               }
+               }
+               }
 
         const rawRows = response.data.dataList || response.data.data?.dataList || []
         const totalRows = rawRows.length
@@ -718,7 +742,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       const getDataTypeAndPattern = (val: string) => {
         let type = "string"
         let pattern = undefined
-        if (/^\d+(\.\d+)?$/.test(val)) {
+        if (/^\d+(\.\d+)?$/.test(val.replace(/,/g, ""))) {  
           type = "number"
         } else if (/^\d{3}-\d{3,4}-\d{4}$/.test(val)) {
           type = "phone"
@@ -842,9 +866,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
     console.log("filename", fileInfo?.name)
 
-    axios.post("/api/common/analyze-excel-structure", {
-      fileName: fileInfo?.name,
-    })
+    // axios.post("/api/common/analyze-excel-structure", {
+    //   fileName: fileInfo?.name,
+    // })
   },
 
   handleCellEdit: (rowIndex: number, colIndex: number, newValue: string) => {
@@ -877,12 +901,18 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       } else {
         const keys = Object.keys(row)
         row[keys[colIndex]] = newValue
-      }
-      list[rowIndex] = row
-      return {
+        }
+        list[rowIndex] = row
+
+        // 셀 수정 시 자동 검증 트리거
+        setTimeout(() => {
+        get().handleConfirmMapping()
+        }, 0)
+
+        return {
         allData: list,
         totalCount: Math.max(prev.totalCount, list.length),
-      }
-    })
-  },
+        }
+        })
+        },
 }))

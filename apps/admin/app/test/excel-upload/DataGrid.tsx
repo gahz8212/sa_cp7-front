@@ -9,6 +9,9 @@ import {
   DragEndEvent,
   DragStartEvent,
   DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core"
 
 // 타입 검증 헬퍼
@@ -16,8 +19,8 @@ const isValidType = (value: string, type: string) => {
   const trimmedValue = value.trim()
   if (trimmedValue === "") return true
 
-  // 숫자로만 구성된 문자열인지 확인
-  const isNumeric = /^\d+(\.\d+)?$/.test(trimmedValue)
+  // 숫자로만 구성된 문자열인지 확인 (콤마 제거 후 체크)
+  const isNumeric = /^\d+(\.\d+)?$/.test(trimmedValue.replace(/,/g, ""))
 
   if (type === "string") {
     // string 타입인데 숫자만 들어오면 에러 (의도적인 엄격한 구분)
@@ -81,6 +84,35 @@ function DroppableCell({
       className={`w-full h-full min-h-[32px] relative transition-colors ${isOver ? "bg-blue-100 ring-2 ring-blue-400 ring-inset" : ""}`}
     >
       {children}
+    </div>
+  )
+}
+
+function DraggableMappedBadge({ col, onCancel }: { col: any; onCancel: () => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: col.backColumn,
+    data: col,
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`absolute top-0.5 left-1/2 -translate-x-1/2 z-20 cursor-grab touch-none ${isDragging ? "opacity-0" : "opacity-100"}`}
+    >
+      <Badge
+        variant={col.required ? "error" : "info"}
+        size="sm"
+        className="shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent"
+        title="드래그하여 이동하거나 더블 클릭하여 매핑 해제"
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          onCancel()
+        }}
+      >
+        {col.name}
+      </Badge>
     </div>
   )
 }
@@ -178,7 +210,7 @@ export function DataGrid() {
     if ((!isAnalysisDone && !isMappingConfirmed) || lastContentRowIndex === -1) return indices
 
     const currentRecordHeight = recordHeight || 1
-    
+
     // 검사 범위 결정: 마지막 콘텐츠 행이 속한 레코드 세트의 끝까지 검사
     const totalCheckRows = Math.ceil((lastContentRowIndex - sampleBaseRow + 1) / currentRecordHeight) * currentRecordHeight + sampleBaseRow
 
@@ -316,6 +348,14 @@ export function DataGrid() {
     return !isAnalysisDone || hasTypeError || unmappedColumns.length > 0
   }, [isAnalysisDone, hasTypeError, unmappedColumns])
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // 5px 이상 이동해야 드래그가 시작됨 (클릭/더블클릭 보장)
+      },
+    }),
+  )
+
   if (allData.length === 0) {
     return (
       <div className="mt-10 border-2 border-dashed p-10 text-center text-gray-400">
@@ -325,8 +365,8 @@ export function DataGrid() {
   }
 
   return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      {wasInitialFullMapping && (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {wasInitialFullMapping && unmappedColumns.length === 0 && (
         <div className="flex items-center gap-2 cursor-pointer group mb-4">
           <input
             type="checkbox"
@@ -375,12 +415,6 @@ export function DataGrid() {
         <div className="flex items-center gap-2">
           <div className="mx-2 border-l h-6" />
           <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-95"
-            onClick={handleConfirmMapping}
-          >
-            데이터 검증
-          </Button>
-          <Button
             className={`shadow-md transition-all active:scale-95 ${isCompleteButtonDisabled
               ? "bg-gray-400 cursor-not-allowed"
               : "bg-red-600 hover:bg-red-700 text-white"
@@ -388,7 +422,7 @@ export function DataGrid() {
             onClick={onCompleteClick}
             disabled={isCompleteButtonDisabled}
           >
-            수정 완료
+            전송
           </Button>
         </div>
       </div>
@@ -398,10 +432,9 @@ export function DataGrid() {
           className={`overflow-hidden transition-all duration-500 ease-in-out ${isMappingConfirmed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100 mb-4"
             }`}
         >
-          {(!wasInitialFullMapping || !isMappingConfirmed) && (
-            <div
-              className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
-            >
+          <div
+            className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
+          >
               <div className="flex justify-between items-center mb-2">
                 <div
                   className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}
@@ -433,7 +466,6 @@ export function DataGrid() {
                 )}
               </div>
             </div>
-          )}
         </div>
 
         <div className="overflow-x-auto w-full border border-gray-200 ">
@@ -498,6 +530,8 @@ export function DataGrid() {
                           col.frontColumn?.trim() === String(rowValues[colIndex] || "").trim(),
                       )
 
+                      const isCellEmpty = String(cell || "").trim() === ""
+
                       return (
                         <td
                           key={colIndex}
@@ -512,15 +546,16 @@ export function DataGrid() {
                             ${mode === "HEADER" && isHeaderRowSelected ? "cursor-pointer" : ""}
                           `}
                         >
-                          <DroppableCell id={cellId} isSelected={isHeaderRowSelected}>
+                          <DroppableCell id={cellId} isSelected={isHeaderRowSelected && !isCellEmpty}>
                             <div
-                              className={`flex flex-col items-center justify-center p-1 relative transition-all duration-200 ${isHeaderRowSelected ? "min-h-[60px]" : "min-h-[50px]"}`}
+                              className={`flex flex-col items-center justify-center p-1 relative transition-[min-height] duration-200 ${isHeaderRowSelected ? "min-h-[60px]" : "min-h-[50px]"}`}
                             >
                               {/* 기존 엑셀 컬럼명 (항상 정중앙 유지) */}
                               <div className="w-full h-full flex justify-center items-center z-0">
                                 <Input
                                   autoWidth
-                                  className={`bg-transparent text-center outline-none ${isHeaderRowSelected ? "font-bold mt-2" : ""}`}
+                                  className={`bg-transparent text-center outline-none 
+                                    ${isHeaderRowSelected ? "font-bold mt-2" : ""}`}
                                   value={String(cell || "")}
                                   onChange={(e) =>
                                     handleCellEdit(rowIndex, colIndex, e.target.value)
@@ -532,24 +567,12 @@ export function DataGrid() {
                               {isHeaderRowSelected && mappedColumn && (
                                 <>
                                   {!isMappingConfirmed ? (
-                                    <div
-                                      className="absolute top-0.5 left-1/2 -translate-x-1/2 z-10 cursor-pointer group"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        updateColumnMapping(mappedColumn.backColumn, null, null) // 매핑 해제
-                                      }}
-                                      title="클릭하여 매핑 해제"
-                                    >
-                                      <Badge
-                                        variant={mappedColumn.required ? "error" : "info"}
-                                        size="sm"
-                                        className="shadow-md transition-all duration-200 group-hover:scale-95 group-hover:opacity-80 group-hover:bg-gray-400 group-hover:text-white"
-                                      >
-                                        <span className="group-hover:line-through">
-                                          {mappedColumn.name}
-                                        </span>
-                                      </Badge>
-                                    </div>
+                                    <DraggableMappedBadge
+                                      col={mappedColumn}
+                                      onCancel={() =>
+                                        updateColumnMapping(mappedColumn.backColumn, null, null)
+                                      }
+                                    />
                                   ) : (
                                     <div
                                       className="absolute top-1 right-1 z-10 flex items-center justify-center w-5 h-5 bg-green-500 rounded-full shadow-sm animate-in zoom-in duration-300"
@@ -608,11 +631,11 @@ export function DataGrid() {
           </Button>
         </div>
       </div>
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeCol ? (
           <Badge
             variant={activeCol.required ? "error" : "info"}
-            className="cursor-grabbing shadow-lg scale-105"
+            className="cursor-grabbing shadow-lg scale-105  min-w-[100px] justify-center"
           >
             {activeCol.name} {activeCol.required && "*"}
           </Badge>
