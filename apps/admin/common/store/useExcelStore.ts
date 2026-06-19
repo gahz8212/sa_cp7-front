@@ -11,6 +11,8 @@ interface TargetColumn {
   name: string
   description: string
   required: boolean
+  dataType?: string | null
+  regex?: string | null
   frontColumn?: string | null // 매핑된 엑셀 컬럼명
   excelColIndex?: number | null // 매핑된 엑셀 컬럼 인덱스
   relativeRowIndex?: number | null // 매핑된 엑셀 상대 행 인덱스 (헤더 내 위치)
@@ -247,7 +249,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                const initializedColumns = backendTargetColumns.map((col: any) => ({
                  ...col,
                  frontColumn: col.frontColumn || null,
-                 excelColIndex: col.excelColIndex ?? null
+                 excelColIndex: col.excelColIndex ?? null,
+                 dataType: col.dataType ?? null,
+                 regex: col.regex ?? null
                }))
                set({ targetColumns: initializedColumns, wasInitialFullMapping: allMapped, isMappingConfirmed: allMapped })
 
