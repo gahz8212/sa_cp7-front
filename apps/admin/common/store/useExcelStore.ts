@@ -7,7 +7,6 @@ export const rowToValues = (row: any) =>
   (Object.values(row).find((v) => Array.isArray(v)) as any[]) || Object.values(row)
 
 interface TargetColumn {
-  backColumn: string
   name: string
   description: string
   required: boolean
@@ -63,7 +62,12 @@ interface ExcelActions {
   handleCellEdit: (rowIndex: number, colIndex: number, newValue: string) => void
   setMappingResult: (result: any) => void
   setTargetColumns: (columns: TargetColumn[]) => void
-  updateColumnMapping: (backColumn: string, frontColumn: string | null, colIndex: number | null, relativeRowIndex?: number | null) => void
+  updateColumnMapping: (
+    name: string,
+    frontColumn: string | null,
+    colIndex: number | null,
+    relativeRowIndex?: number | null,
+  ) => void
   confirmMappingCompletion: () => void
   setIsMappingConfirmed: (isConfirmed: boolean) => void
 }
@@ -112,26 +116,32 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   },
 
   setTargetColumns: (columns) => set({ targetColumns: columns }),
-  
-  updateColumnMapping: (backColumn, frontColumn, colIndex, relativeRowIndex) => set((prev) => {
-    const nextTargetColumns = prev.targetColumns.map((col) => {
-      // 1. 해당 시스템 컬럼의 매핑 정보를 업데이트
-      if (col.backColumn === backColumn) {
-        return { ...col, frontColumn, excelColIndex: colIndex, relativeRowIndex }
-      }
-      // 2. 다른 시스템 컬럼이 이미 이 위치(행, 열)에 매핑되어 있었다면 해제 (1:1 매핑 유지)
-      if (frontColumn && col.frontColumn === frontColumn && col.excelColIndex === colIndex && col.relativeRowIndex === relativeRowIndex) {
-        return { ...col, frontColumn: null, excelColIndex: null, relativeRowIndex: null }
-      }
-      return col
-    })
 
-    // 매핑이 변경되었으므로 자동 검증 트리거
-    setTimeout(() => {
-      get().handleConfirmMapping()
-    }, 0)
+  updateColumnMapping: (name, frontColumn, colIndex, relativeRowIndex) =>
+    set((prev) => {
+      const nextTargetColumns = prev.targetColumns.map((col) => {
+        // 1. 해당 시스템 컬럼의 매핑 정보를 업데이트
+        if (col.name === name) {
+          return { ...col, frontColumn, excelColIndex: colIndex, relativeRowIndex }
+        }
+        // 2. 다른 시스템 컬럼이 이미 이 위치(행, 열)에 매핑되어 있었다면 해제 (1:1 매핑 유지)
+        if (
+          frontColumn &&
+          col.frontColumn === frontColumn &&
+          col.excelColIndex === colIndex &&
+          col.relativeRowIndex === relativeRowIndex
+        ) {
+          return { ...col, frontColumn: null, excelColIndex: null, relativeRowIndex: null }
+        }
+        return col
+      })
 
-    return { targetColumns: nextTargetColumns, isMappingConfirmed: false }
+      // 매핑이 변경되었으므로 자동 검증 트리거
+      setTimeout(() => {
+        get().handleConfirmMapping()
+      }, 0)
+
+      return { targetColumns: nextTargetColumns, isMappingConfirmed: false }
     }),
 
   setFile: (file) => {
@@ -166,8 +176,34 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     }
   },
 
+  setMode: (mode) => {
+    set((prev) => {
+      const updates: Partial<ExcelState> = { mode }
+      if (mode === "HEADER") {
+        updates.selectedHeaderRows = new Set()
+        updates.selectedHeaderCells = new Set()
+        updates.headerBaseRow = 0
+        updates.headerHeight = 0
+        updates.isAnalysisDone = false
+        updates.mappingResult = null
+      } else if (mode === "DATA") {
+        updates.selectedSampleRows = new Set()
+        updates.sampleBaseRow = 0
+        updates.recordHeight = 0
+        updates.isAnalysisDone = false
+        updates.mappingResult = null
+      } else if (mode === "ETC") {
+        updates.selectedEtcRows = new Set()
+        updates.etcBaseRow = 0
+        updates.etcHeight = 0
+        updates.isAnalysisDone = false
+        updates.mappingResult = null
+      }
+      return updates
+    })
+  },
+
   setPage: (page) => set({ page }),
-  setMode: (mode) => set({ mode }),
   setMappingResult: (mappingResult) => set({ mappingResult }),
 
   resetSelection: () => {
@@ -233,36 +269,45 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
             const percentCompleted = Math.round((progressEvent.loaded * 45) / progressEvent.total)
             set({ uploadProgress: 5 + percentCompleted }) // 5% ~ 50%
           }
-        }
+        },
       })
       console.log("Chunk response:", response.data)
       if (response.data) {
         if (isInitial) {
-           set({ uploadProgress: 55 })
-           // 첫 청크 로드 시 targetColumns가 서버 응답에 있다면 상태에 저장합니다.
-           const backendTargetColumns = response.data.targetColumns || response.data.data?.targetColumns
-           if (backendTargetColumns) {
-               // 모든 frontColumn이 null이 아닌지 확인 (수정 모드 노출 여부 결정)
-               const allMapped = backendTargetColumns.length > 0 && backendTargetColumns.every((col: any) => col.frontColumn !== null && col.frontColumn !== undefined)
-               
-               // 프론트에서 사용할 수 있도록 frontColumn, excelColIndex를 명시적으로 초기화 (이미 있으면 유지)
-               const initializedColumns = backendTargetColumns.map((col: any) => ({
-                 ...col,
-                 frontColumn: col.frontColumn || null,
-                 excelColIndex: col.excelColIndex ?? null,
-                 dataType: col.dataType ?? null,
-                 regex: col.regex ?? null
-               }))
-               set({ targetColumns: initializedColumns, wasInitialFullMapping: allMapped, isMappingConfirmed: allMapped })
+          set({ uploadProgress: 55 })
+          // 첫 청크 로드 시 targetColumns가 서버 응답에 있다면 상태에 저장합니다.
+          const backendTargetColumns =
+            response.data.targetColumns || response.data.data?.targetColumns
+          if (backendTargetColumns) {
+            // 모든 frontColumn이 null이 아닌지 확인 (수정 모드 노출 여부 결정)
+            const allMapped =
+              backendTargetColumns.length > 0 &&
+              backendTargetColumns.every(
+                (col: any) => col.frontColumn !== null && col.frontColumn !== undefined,
+              )
 
-               // 자동 검증 실행: 매핑 정보가 있는 경우에만
-               if (allMapped) {
-                 setTimeout(() => {
-                   get().handleConfirmMapping()
-                 }, 0)
-               }
-               }
-               }
+            // 프론트에서 사용할 수 있도록 frontColumn, excelColIndex를 명시적으로 초기화 (이미 있으면 유지)
+            const initializedColumns = backendTargetColumns.map((col: any) => ({
+              ...col,
+              frontColumn: col.frontColumn || null,
+              excelColIndex: col.excelColIndex ?? null,
+              dataType: col.dataType ?? null,
+              regex: col.regex ?? null,
+            }))
+            set({
+              targetColumns: initializedColumns,
+              wasInitialFullMapping: allMapped,
+              isMappingConfirmed: allMapped,
+            })
+
+            // 자동 검증 실행: 매핑 정보가 있는 경우에만
+            if (allMapped) {
+              setTimeout(() => {
+                get().handleConfirmMapping()
+              }, 0)
+            }
+          }
+        }
 
         const rawRows = response.data.dataList || response.data.data?.dataList || []
         const totalRows = rawRows.length
@@ -296,141 +341,190 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
             allData: [...prev.allData, ...newRows],
             allOriginalData: [...prev.allOriginalData, ...newRows.map((r: any) => ({ ...r }))],
             totalCount: response.data.totalCount || response.data.data?.totalCount || 0,
-            loadedChunks: nextChunks
+            loadedChunks: nextChunks,
           }
         })
 
         if (isInitial) {
           const { targetColumns, wasInitialFullMapping } = get()
-          const mappedColumns = targetColumns.filter(col => col.frontColumn)
-          
+          const mappedColumns = targetColumns.filter((col) => col.frontColumn)
+          let isStructureSet = false
+
           if (mappedColumns.length > 0) {
-             const savedHeaderStructure = response.data.headerStructure || response.data.data?.headerStructure;
+            const savedHeaderStructure =
+              response.data.headerStructure || response.data.data?.headerStructure
 
-             if (savedHeaderStructure) {
-                 // 백엔드에서 저장된 headerStructure를 함께 보내준 경우 (저장된 정보 우선 사용)
-                 const hBaseRow = savedHeaderStructure.headerStartRow || 0;
-                 const hEndRow = savedHeaderStructure.headerEndRow !== undefined ? savedHeaderStructure.headerEndRow : hBaseRow;
-                 const sBaseRow = savedHeaderStructure.dataStartRow || (hEndRow + 1);
-                 const sEndRow = savedHeaderStructure.dataEndRow !== undefined ? savedHeaderStructure.dataEndRow : sBaseRow;
-                 
-                 const eBaseRow = savedHeaderStructure.etcStartRow !== undefined ? savedHeaderStructure.etcStartRow : 0;
-                 const eEndRow = savedHeaderStructure.etcEndRow !== undefined ? savedHeaderStructure.etcEndRow : (hBaseRow > 0 ? hBaseRow - 1 : -1);
+            if (savedHeaderStructure) {
+              // 백엔드에서 저장된 headerStructure를 함께 보내준 경우 (저장된 정보 우선 사용)
+              const hBaseRow = savedHeaderStructure.headerStartRow || 0
+              const hEndRow =
+                savedHeaderStructure.headerEndRow !== undefined
+                  ? savedHeaderStructure.headerEndRow
+                  : hBaseRow
+              const sBaseRow = savedHeaderStructure.dataStartRow || hEndRow + 1
+              const sEndRow =
+                savedHeaderStructure.dataEndRow !== undefined
+                  ? savedHeaderStructure.dataEndRow
+                  : sBaseRow
 
-                 const detectedHeaderRows = new Set<number>();
-                 for (let i = hBaseRow; i <= hEndRow; i++) {
-                     detectedHeaderRows.add(i);
-                 }
-                 const hHeight = hEndRow - hBaseRow + 1;
+              const eBaseRow =
+                savedHeaderStructure.etcStartRow !== undefined
+                  ? savedHeaderStructure.etcStartRow
+                  : 0
+              const eEndRow =
+                savedHeaderStructure.etcEndRow !== undefined
+                  ? savedHeaderStructure.etcEndRow
+                  : hBaseRow > 0
+                    ? hBaseRow - 1
+                    : -1
 
-                 // 확정된 헤더 영역 내에서 excelColIndex 매칭
-                 for (let i = hBaseRow; i <= hEndRow && i < newRows.length; i++) {
-                     const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
-                     targetColumns.forEach(col => {
-                         if (col.frontColumn) {
-                             const colIdx = rowValues.indexOf(col.frontColumn.trim());
-                             if (colIdx !== -1) {
-                                 col.excelColIndex = colIdx;
-                                 col.relativeRowIndex = i - hBaseRow;
-                             }
-                         }
-                     });
-                 }
+              const detectedHeaderRows = new Set<number>()
+              for (let i = hBaseRow; i <= hEndRow; i++) {
+                detectedHeaderRows.add(i)
+              }
+              const hHeight = hEndRow - hBaseRow + 1
 
-                 const detectedSampleRows = new Set<number>();
-                 if (sBaseRow < newRows.length) {
-                     for (let i = sBaseRow; i <= sEndRow && i < newRows.length; i++) {
-                         detectedSampleRows.add(i);
-                     }
-                 }
-
-                 const detectedEtcRows = new Set<number>();
-                 if (eEndRow >= eBaseRow) {
-                     for (let i = eBaseRow; i <= eEndRow && i < newRows.length; i++) {
-                         detectedEtcRows.add(i);
-                     }
-                 }
-
-                 set({
-                     selectedHeaderRows: detectedHeaderRows,
-                     headerBaseRow: hBaseRow,
-                     headerHeight: hHeight,
-
-                     selectedSampleRows: detectedSampleRows,
-                     sampleBaseRow: detectedSampleRows.size > 0 ? sBaseRow : 0,
-                     recordHeight: detectedSampleRows.size > 0 ? (sEndRow - sBaseRow + 1) : 0,
-
-                     selectedEtcRows: detectedEtcRows,
-                     etcBaseRow: detectedEtcRows.size > 0 ? eBaseRow : 0,
-                     etcHeight: detectedEtcRows.size > 0 ? (eEndRow - eBaseRow + 1) : 0,
-
-                     isMappingConfirmed: wasInitialFullMapping,
-                     targetColumns: [...targetColumns]
-                 });
-             } else {
-                 const detectedHeaderRows = new Set<number>();
-
-                 // 1. 먼저 상위 20행을 스캔하여 '대표 헤더 행'을 찾고 영역을 추정함
-                 // (이 작업은 headerBaseRow와 headerHeight를 확정하기 위함)
-                 for (let i = 0; i < Math.min(newRows.length, 20); i++) {
-                    const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
-                    targetColumns.forEach(col => {
-                        if (col.frontColumn && rowValues.includes(col.frontColumn.trim())) {
-                            detectedHeaderRows.add(i);
-                        }
-                    });
-                 }
-
-                 if (detectedHeaderRows.size > 0) {
-                    const sortedRows = Array.from(detectedHeaderRows).sort((a, b) => a - b);
-                    const hBaseRow = sortedRows[0];
-                    const hHeight = sortedRows.length; // 연속된 행이라고 가정 (또는 마지막-처음 + 1)
-
-                    // 2. 확정된 헤더 영역 내에서 각 컬럼의 excelColIndex를 정확히 매칭
-                    for (let i = hBaseRow; i < hBaseRow + hHeight; i++) {
-                        const rowValues = rowToValues(newRows[i]).map(v => String(v || "").trim());
-                        targetColumns.forEach(col => {
-                            if (col.frontColumn) {
-                                const colIdx = rowValues.indexOf(col.frontColumn.trim());
-                                if (colIdx !== -1) {
-                                    col.excelColIndex = colIdx;
-                                    col.relativeRowIndex = i - hBaseRow;
-                                }
-                            }
-                        });
+              // 확정된 헤더 영역 내에서 excelColIndex 매칭
+              for (let i = hBaseRow; i <= hEndRow && i < newRows.length; i++) {
+                const rowValues = rowToValues(newRows[i]).map((v) => String(v || "").trim())
+                targetColumns.forEach((col) => {
+                  if (col.frontColumn) {
+                    const colIdx = rowValues.indexOf(col.frontColumn.trim())
+                    if (colIdx !== -1) {
+                      col.excelColIndex = colIdx
+                      col.relativeRowIndex = i - hBaseRow
                     }
+                  }
+                })
+              }
 
-                    // 3. 데이터 영역 자동 추정 (헤더 바로 다음 행부터 데이터라고 가정)
-                    const detectedSampleRows = new Set<number>();
-                    const sBaseRow = hBaseRow + hHeight;
-                    if (sBaseRow < newRows.length) {
-                        detectedSampleRows.add(sBaseRow);
+              const detectedSampleRows = new Set<number>()
+              if (sBaseRow < newRows.length) {
+                for (let i = sBaseRow; i <= sEndRow && i < newRows.length; i++) {
+                  detectedSampleRows.add(i)
+                }
+              }
+
+              const detectedEtcRows = new Set<number>()
+              if (eEndRow >= eBaseRow) {
+                for (let i = eBaseRow; i <= eEndRow && i < newRows.length; i++) {
+                  detectedEtcRows.add(i)
+                }
+              }
+
+              set({
+                selectedHeaderRows: detectedHeaderRows,
+                headerBaseRow: hBaseRow,
+                headerHeight: hHeight,
+
+                selectedSampleRows: detectedSampleRows,
+                sampleBaseRow: detectedSampleRows.size > 0 ? sBaseRow : 0,
+                recordHeight: detectedSampleRows.size > 0 ? sEndRow - sBaseRow + 1 : 0,
+
+                selectedEtcRows: detectedEtcRows,
+                etcBaseRow: detectedEtcRows.size > 0 ? eBaseRow : 0,
+                etcHeight: detectedEtcRows.size > 0 ? eEndRow - eBaseRow + 1 : 0,
+
+                isMappingConfirmed: wasInitialFullMapping,
+                targetColumns: [...targetColumns],
+              })
+              isStructureSet = true
+            } else {
+              const detectedHeaderRows = new Set<number>()
+
+              // 1. 먼저 상위 20행을 스캔하여 '대표 헤더 행'을 찾고 영역을 추정함
+              // (이 작업은 headerBaseRow와 headerHeight를 확정하기 위함)
+              for (let i = 0; i < Math.min(newRows.length, 20); i++) {
+                const rowValues = rowToValues(newRows[i]).map((v) => String(v || "").trim())
+                targetColumns.forEach((col) => {
+                  if (col.frontColumn && rowValues.includes(col.frontColumn.trim())) {
+                    detectedHeaderRows.add(i)
+                  }
+                })
+              }
+
+              if (detectedHeaderRows.size > 0) {
+                const sortedRows = Array.from(detectedHeaderRows).sort((a, b) => a - b)
+                const hBaseRow = sortedRows[0]
+                const hHeight = sortedRows.length // 연속된 행이라고 가정 (또는 마지막-처음 + 1)
+
+                // 2. 확정된 헤더 영역 내에서 각 컬럼의 excelColIndex를 정확히 매칭
+                for (let i = hBaseRow; i < hBaseRow + hHeight; i++) {
+                  const rowValues = rowToValues(newRows[i]).map((v) => String(v || "").trim())
+                  targetColumns.forEach((col) => {
+                    if (col.frontColumn) {
+                      const colIdx = rowValues.indexOf(col.frontColumn.trim())
+                      if (colIdx !== -1) {
+                        col.excelColIndex = colIdx
+                        col.relativeRowIndex = i - hBaseRow
+                      }
                     }
+                  })
+                }
 
-                    // 4. 기타 영역 자동 추정 (헤더 이전의 행들을 기타 영역으로 가정)
-                    const detectedEtcRows = new Set<number>();
-                    for (let i = 0; i < hBaseRow; i++) {
-                        detectedEtcRows.add(i);
-                    }
+                // 3. 데이터 영역 자동 추정 (헤더 바로 다음 행부터 데이터라고 가정)
+                const detectedSampleRows = new Set<number>()
+                const sBaseRow = hBaseRow + hHeight
+                if (sBaseRow < newRows.length) {
+                  detectedSampleRows.add(sBaseRow)
+                }
 
-                    set({
-                        selectedHeaderRows: detectedHeaderRows,
-                        headerBaseRow: hBaseRow,
-                        headerHeight: hHeight,
+                // 4. 기타 영역 자동 추정 (헤더 이전의 행들을 기타 영역으로 가정)
+                const detectedEtcRows = new Set<number>()
+                for (let i = 0; i < hBaseRow; i++) {
+                  detectedEtcRows.add(i)
+                }
 
-                        selectedSampleRows: detectedSampleRows,
-                        sampleBaseRow: detectedSampleRows.size > 0 ? sBaseRow : 0,
-                        recordHeight: detectedSampleRows.size > 0 ? 1 : 0,
+                set({
+                  selectedHeaderRows: detectedHeaderRows,
+                  headerBaseRow: hBaseRow,
+                  headerHeight: hHeight,
 
-                        selectedEtcRows: detectedEtcRows,
-                        etcBaseRow: detectedEtcRows.size > 0 ? 0 : 0,
-                        etcHeight: detectedEtcRows.size > 0 ? hBaseRow : 0,
+                  selectedSampleRows: detectedSampleRows,
+                  sampleBaseRow: detectedSampleRows.size > 0 ? sBaseRow : 0,
+                  recordHeight: detectedSampleRows.size > 0 ? 1 : 0,
 
-                        isMappingConfirmed: wasInitialFullMapping, // 모든 컬럼이 매핑된 경우에만 확정 상태로 시작
-                        targetColumns: [...targetColumns]
-                    });
-                 }
-             }
+                  selectedEtcRows: detectedEtcRows,
+                  etcBaseRow: detectedEtcRows.size > 0 ? 0 : 0,
+                  etcHeight: detectedEtcRows.size > 0 ? hBaseRow : 0,
+
+                  isMappingConfirmed: wasInitialFullMapping, // 모든 컬럼이 매핑된 경우에만 확정 상태로 시작
+                  targetColumns: [...targetColumns],
+                })
+                isStructureSet = true
+              }
+            }
+          }
+
+          // 만약 위에서 템플릿이나 자동 매핑에 의해 구조가 설정되지 않았다면 디폴트로 초기화 (첫 행 헤더, 두 번째 행 데이터)
+          if (!isStructureSet && newRows.length > 0) {
+            const defaultHeaderRows = new Set<number>([0])
+            const defaultSampleRows = new Set<number>()
+            if (newRows.length > 1) {
+              defaultSampleRows.add(1)
+            }
+
+            set({
+              selectedHeaderRows: defaultHeaderRows,
+              headerBaseRow: 0,
+              headerHeight: 1,
+
+              selectedSampleRows: defaultSampleRows,
+              sampleBaseRow: newRows.length > 1 ? 1 : 0,
+              recordHeight: newRows.length > 1 ? 1 : 0,
+
+              selectedEtcRows: new Set<number>(),
+              etcBaseRow: 0,
+              etcHeight: 0,
+            })
+            isStructureSet = true
+          }
+
+          // 구조가 설정되었다면 자동 구조 분석 수행
+          if (isStructureSet) {
+            setTimeout(() => {
+              get().handleConfirmMapping()
+            }, 0)
           }
 
           set({ uploadProgress: 100 })
@@ -457,21 +551,21 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   },
 
   handleExtractModifiedData: () => {
-    const { 
-      allData, 
-      allOriginalData, 
-      targetColumns, 
-      selectedHeaderRows, 
+    const {
+      allData,
+      allOriginalData,
+      targetColumns,
+      selectedHeaderRows,
       selectedSampleRows,
       selectedEtcRows,
-      headerBaseRow, 
+      headerBaseRow,
       sampleBaseRow,
       etcBaseRow,
       recordHeight,
       mappingResult,
-      fileInfo
+      fileInfo,
     } = get()
-    
+
     if (allData.length === 0) return
 
     // 1. 수정된 데이터 추출
@@ -496,52 +590,58 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
     // 2. 템플릿 데이터 생성
     const headerRowIndices = Array.from(selectedHeaderRows).sort((a, b) => a - b)
-    const headerEndRow = headerRowIndices.length > 0 ? headerRowIndices[headerRowIndices.length - 1] : headerBaseRow
-    
+    const headerEndRow =
+      headerRowIndices.length > 0 ? headerRowIndices[headerRowIndices.length - 1] : headerBaseRow
+
     const sampleRowIndices = Array.from(selectedSampleRows).sort((a, b) => a - b)
-    const dataEndRow = sampleRowIndices.length > 0 ? sampleRowIndices[sampleRowIndices.length - 1] : sampleBaseRow
+    const dataEndRow =
+      sampleRowIndices.length > 0 ? sampleRowIndices[sampleRowIndices.length - 1] : sampleBaseRow
 
     const etcRowIndices = Array.from(selectedEtcRows).sort((a, b) => a - b)
-    const etcEndRow = etcRowIndices.length > 0 ? etcRowIndices[etcRowIndices.length - 1] : etcBaseRow
+    const etcEndRow =
+      etcRowIndices.length > 0 ? etcRowIndices[etcRowIndices.length - 1] : etcBaseRow
 
     // 3. 실제 입력할 데이터 배열 생성 (데이터 영역의 모든 레코드 대상)
     // recordHeight가 2라면, 2행이 하나의 데이터 세트임
-    const mappedData: any[] = [];
+    const mappedData: any[] = []
     for (let i = sampleBaseRow; i < allData.length; i += recordHeight || 1) {
-      const recordRows = allData.slice(i, i + (recordHeight || 1));
-      
+      const recordRows = allData.slice(i, i + (recordHeight || 1))
+
       const recordData = targetColumns
-        .filter(col => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined)
-        .map(col => {
+        .filter(
+          (col) => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined,
+        )
+        .map((col) => {
           // relativeRowIndex가 지정되어 있다면 해당 행에서 값을 가져오고, 없으면 첫 행에서 가져옴
-          const targetRow = recordRows[recordHeight === 1 ? 0 : (col.relativeRowIndex || 0)];
-          const rowValues = targetRow ? rowToValues(targetRow) : [];
-          const cellValue = String(rowValues[col.excelColIndex!] || "").trim();
-          
+          const targetRow = recordRows[recordHeight === 1 ? 0 : col.relativeRowIndex || 0]
+          const rowValues = targetRow ? rowToValues(targetRow) : []
+          const cellValue = String(rowValues[col.excelColIndex!] || "").trim()
+
           return {
             "front-column": col.frontColumn,
-            "back-column": col.backColumn,
-            "value": cellValue
-          };
+            "back-column": col.name,
+            value: cellValue,
+          }
         })
-        .filter(item => item.value !== ""); // value가 빈 문자열이면 제외
+        .filter((item) => item.value !== "") // value가 빈 문자열이면 제외
 
       if (recordData.length > 0) {
-        mappedData.push(recordData);
+        mappedData.push(recordData)
       }
     }
 
     // 선택된 헤더 행(첫 번째 줄)의 모든 컬럼 값을 가져옵니다.
-    const originalHeaderColumns = headerRowIndices.length > 0 
-      ? rowToValues(allData[headerRowIndices[0]]).map(v => String(v || "").trim())
-      : []
+    const originalHeaderColumns =
+      headerRowIndices.length > 0
+        ? rowToValues(allData[headerRowIndices[0]]).map((v) => String(v || "").trim())
+        : []
 
     // 백엔드 요청을 위해 userMapping 형식으로 변환 (백엔드 API 스펙 유지를 위해 복구)
     const userMapping = targetColumns
-      .filter(col => col.frontColumn)
-      .map(col => ({
+      .filter((col) => col.frontColumn)
+      .map((col) => ({
         "front-column": col.frontColumn,
-        "back-column": col.backColumn // 시스템 컬럼 ID 매핑
+        "back-column": col.name, // 시스템 컬럼 이름 매핑
       }))
 
     const templateData = {
@@ -557,7 +657,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         // originalHeaderColumns: originalHeaderColumns
       },
       // userMapping: userMapping,
-      targetColumns: targetColumns // 통합된 전체 데이터 전송
+      targetColumns: targetColumns, // 통합된 전체 데이터 전송
     }
 
     console.log("Modified Data:", changes)
@@ -565,17 +665,19 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     console.log("To db of BackEnd (Actual values):", mappedData)
 
     if (changes.length > 0 || userMapping.length > 0 || mappedData.length > 0) {
-      
-      axios.post("/api/common/save-excel-data-and-template", { 
-        modifiedRows: changes,
-        templateData: templateData,
-        mappedData: mappedData // 실제 매핑된 데이터 전송
-      }).then(() => {
-        alert("데이터와 매핑 템플릿이 성공적으로 저장되었습니다.")
-      }).catch(err => {
-        console.error("Save failed", err)
-        alert("저장 중 오류가 발생했습니다.")
-      })
+      axios
+        .post("/api/common/save-excel-data-and-template", {
+          modifiedRows: changes,
+          templateData: templateData,
+          mappedData: mappedData, // 실제 매핑된 데이터 전송
+        })
+        .then(() => {
+          alert("데이터와 매핑 템플릿이 성공적으로 저장되었습니다.")
+        })
+        .catch((err) => {
+          console.error("Save failed", err)
+          alert("저장 중 오류가 발생했습니다.")
+        })
     } else {
       alert("수정된 데이터나 매핑 정보가 없습니다.")
     }
@@ -593,18 +695,18 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         }
         const sorted = Array.from(next).sort((a, b) => a - b)
         const newHeaderBaseRow = sorted.length > 0 ? sorted[0] : prev.headerBaseRow
-        const newHeaderHeight = sorted.length > 0 ? (sorted[sorted.length - 1] - sorted[0] + 1) : 0
+        const newHeaderHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0
 
         const nextCells = new Set(prev.selectedHeaderCells)
         nextCells.forEach((id) => {
           if (id.startsWith(`${rowIndex}-`)) nextCells.delete(id)
         })
 
-        return { 
-          selectedHeaderRows: next, 
+        return {
+          selectedHeaderRows: next,
           headerBaseRow: newHeaderBaseRow,
           headerHeight: newHeaderHeight,
-          selectedHeaderCells: nextCells
+          selectedHeaderCells: nextCells,
         }
       })
     } else if (mode === "DATA") {
@@ -614,11 +716,11 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         else next.add(rowIndex)
         const sorted = Array.from(next).sort((a, b) => a - b)
         const newSampleBaseRow = sorted.length > 0 ? sorted[0] : prev.sampleBaseRow
-        const newRecordHeight = sorted.length > 0 ? (sorted[sorted.length - 1] - sorted[0] + 1) : 0
+        const newRecordHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0
         return {
           selectedSampleRows: next,
           sampleBaseRow: newSampleBaseRow,
-          recordHeight: newRecordHeight
+          recordHeight: newRecordHeight,
         }
       })
     } else if (mode === "ETC") {
@@ -628,11 +730,11 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         else next.add(rowIndex)
         const sorted = Array.from(next).sort((a, b) => a - b)
         const newEtcBaseRow = sorted.length > 0 ? sorted[0] : prev.etcBaseRow
-        const newEtcHeight = sorted.length > 0 ? (sorted[sorted.length - 1] - sorted[0] + 1) : 0
+        const newEtcHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0
         return {
           selectedEtcRows: next,
           etcBaseRow: newEtcBaseRow,
-          etcHeight: newEtcHeight
+          etcHeight: newEtcHeight,
         }
       })
     }
@@ -655,16 +757,16 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   },
 
   handleConfirmMapping: () => {
-    const { 
-      allData, 
-      selectedHeaderRows, 
-      selectedSampleRows, 
-      selectedEtcRows, 
-      headerBaseRow, 
-      sampleBaseRow, 
+    const {
+      allData,
+      selectedHeaderRows,
+      selectedSampleRows,
+      selectedEtcRows,
+      headerBaseRow,
+      sampleBaseRow,
       etcBaseRow,
       selectedHeaderCells,
-      fileInfo
+      fileInfo,
     } = get()
 
     const headerRows = Array.from(selectedHeaderRows).map((idx) => rowToValues(allData[idx]))
@@ -677,12 +779,14 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     }
 
     const selectedHeadersValues = new Set(
-      Array.from(selectedHeaderCells).map((id) => {
-        const [r, c] = id.split("-").map(Number)
-        const row = allData[r]
-        if (!row) return ""
-        return String(rowToValues(row)[c] || "")
-      }).filter((v) => v !== "")
+      Array.from(selectedHeaderCells)
+        .map((id) => {
+          const [r, c] = id.split("-").map(Number)
+          const row = allData[r]
+          if (!row) return ""
+          return String(rowToValues(row)[c] || "")
+        })
+        .filter((v) => v !== ""),
     )
 
     const buildStructure = (rows: any[], isHeader: boolean = false) => {
@@ -746,7 +850,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       const getDataTypeAndPattern = (val: string) => {
         let type = "string"
         let pattern = undefined
-        if (/^\d+(\.\d+)?$/.test(val.replace(/,/g, ""))) {  
+        if (/^\d+(\.\d+)?$/.test(val.replace(/[\s,]/g, ""))) {
           type = "number"
         } else if (/^\d{3}-\d{3,4}-\d{4}$/.test(val)) {
           type = "phone"
@@ -790,58 +894,60 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     }
 
     function mergeHeaderAndType(headers: any[], types: any[]) {
-      const mergedList: any[] = [];
-      const cols = new Set([...headers.map(h => h.col), ...types.map(t => t.col)]);
-      
-      cols.forEach(col => {
-        const colHeaders = headers.filter(h => h.col === col);
-        const colTypes = types.filter(t => t.col === col);
-        
-        const header = colHeaders.length > 0 ? colHeaders[0] : { value: "" };
-        const { value, ...restHeader } = header;
+      const mergedList: any[] = []
+      const cols = new Set([...headers.map((h) => h.col), ...types.map((t) => t.col)])
+
+      cols.forEach((col) => {
+        const colHeaders = headers.filter((h) => h.col === col)
+        const colTypes = types.filter((t) => t.col === col)
 
         if (colTypes.length > 0) {
-           colTypes.forEach(typeInfo => {
-             const merged: any = {
-                column: value,
-                ...restHeader,
-                type: typeInfo.type,
-                row: typeInfo.row,
-                col: col,
-             };
-             if (typeInfo.pattern) merged.pattern = typeInfo.pattern;
-             if (typeInfo.rowspan) merged.rowspan = typeInfo.rowspan;
-             if (typeInfo.colspan) merged.colspan = typeInfo.colspan;
-             mergedList.push(merged);
-           });
-        } else {
-           const merged: any = {
+          colTypes.forEach((typeInfo) => {
+            const relativeRow = typeInfo.row - sampleBaseRow
+            const matchedHeader = colHeaders.find((h) => h.row - headerBaseRow === relativeRow) ||
+              colHeaders[0] || { value: "" }
+
+            const { value, ...restHeader } = matchedHeader
+            const merged: any = {
               column: value,
               ...restHeader,
-              type: "string",
-              row: sampleBaseRow,
-              col: col
-           };
-           mergedList.push(merged);
+              type: typeInfo.type,
+              row: typeInfo.row,
+              col: col,
+            }
+            if (typeInfo.pattern) merged.pattern = typeInfo.pattern
+            if (typeInfo.rowspan) merged.rowspan = typeInfo.rowspan
+            if (typeInfo.colspan) merged.colspan = typeInfo.colspan
+            mergedList.push(merged)
+          })
+        } else {
+          const header = colHeaders.length > 0 ? colHeaders[0] : { value: "" }
+          const { value, ...restHeader } = header
+          const merged: any = {
+            column: value,
+            ...restHeader,
+            type: "string",
+            row: sampleBaseRow,
+            col: col,
+          }
+          mergedList.push(merged)
         }
-      });
-      return mergedList;
+      })
+      return mergedList
     }
 
     const structuredHeaders = getStructuredData(headersMatrix, headerBaseRow)
     const filteredStructuredHeaders = structuredHeaders.filter(
       (h) => !selectedHeadersValues.has(h.value),
     )
-    // const structuredData = getStructuredData(dataMatrix, sampleBaseRow)
+    const structuredData = getStructuredData(dataMatrix, sampleBaseRow)
     const transformStructuredData = mergeHeaderAndType(
       [...filteredStructuredHeaders].sort((a, b) => a.row - b.row || a.col - b.col),
-      getStructuredType(dataMatrix, sampleBaseRow).sort(
-        (a, b) => a.row - b.row || a.col - b.col,
-      ),
+      getStructuredType(dataMatrix, sampleBaseRow).sort((a, b) => a.row - b.row || a.col - b.col),
     )
 
     console.log("헤더 행 데이터 :", structuredHeaders)
-    // console.log("데이터 행 데이터:", structuredData)
+    console.log("데이터 행 데이터:", structuredData)
     console.log("변환된 구조 타입 데이터 (필터링됨):", transformStructuredData)
 
     const headerHeight = headerRows.length
@@ -865,7 +971,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         // flattenedEtc,
       },
       mode: null,
-      isAnalysisDone: true
+      isAnalysisDone: true,
     })
 
     console.log("filename", fileInfo?.name)
@@ -905,18 +1011,18 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       } else {
         const keys = Object.keys(row)
         row[keys[colIndex]] = newValue
-        }
-        list[rowIndex] = row
+      }
+      list[rowIndex] = row
 
-        // 셀 수정 시 자동 검증 트리거
-        setTimeout(() => {
+      // 셀 수정 시 자동 검증 트리거
+      setTimeout(() => {
         get().handleConfirmMapping()
-        }, 0)
+      }, 0)
 
-        return {
+      return {
         allData: list,
         totalCount: Math.max(prev.totalCount, list.length),
-        }
-        })
-        },
+      }
+    })
+  },
 }))

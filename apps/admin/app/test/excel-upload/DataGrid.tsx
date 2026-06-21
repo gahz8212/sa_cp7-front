@@ -15,32 +15,59 @@ import {
 } from "@dnd-kit/core"
 
 // 타입 검증 헬퍼
-const isValidType = (value: string, type: string) => {
+const isValidType = (value: string, type: string, regex?: string | null) => {
   const trimmedValue = value.trim()
   if (trimmedValue === "") return true
 
-  // 숫자로만 구성된 문자열인지 확인 (콤마 제거 후 체크)
-  const isNumeric = /^\d+(\.\d+)?$/.test(trimmedValue.replace(/,/g, ""))
-
-  if (type === "string") {
-    // string 타입인데 숫자만 들어오면 에러 (의도적인 엄격한 구분)
-    return !isNumeric
+  // 1. 백엔드에서 내려준 정규식(regex)이 있으면 최우선으로 정밀 검증 수행
+  if (regex) {
+    try {
+      // 백엔드에서 이중/삼중으로 이스케이프되어 넘어온 백슬래시(\\\\)를 단일 백슬래시(\)로 보정
+      const normalizedRegex = regex.replace(/\\\\/g, "\\")
+      const reg = new RegExp(normalizedRegex)
+      return reg.test(trimmedValue)
+    } catch (e) {
+      console.error("Invalid regex pattern parser failed:", regex, e)
+    }
   }
-  if (type === "number") {
+
+  // 2. 정규식이 없거나 실패한 경우 데이터 타입에 기반한 기본 검증 (Fallback)
+  const lowerType = type ? type.toLowerCase() : ""
+  const isNumeric = /^\d+(\.\d+)?$/.test(trimmedValue.replace(/[\s,]/g, ""))
+
+  if (lowerType === "number" || lowerType === "int" || lowerType === "float" || lowerType === "double") {
     return isNumeric
   }
-  if (type === "phone") {
-    return /^\d{3}-\d{3,4}-\d{4}$/.test(trimmedValue)
+  if (lowerType === "phone") {
+    // 대시 포함 형식 또는 단순 숫자 연속 형식 모두 유연하게 통과
+    return /^\d{3}-\d{3,4}-\d{4}$/.test(trimmedValue) || /^\d{10,11}$/.test(trimmedValue)
   }
-  if (type === "biz-number") {
-    return /^\d{3}-\d{2}-\d{5}$/.test(trimmedValue)
+  if (lowerType === "biz-number" || lowerType === "biz_number") {
+    return /^\d{3}-\d{2}-\d{5}$/.test(trimmedValue) || /^\d{10}$/.test(trimmedValue)
   }
+  
+  // string 및 기타 타입은 모든 형식 수용 (숫자 포함)
   return true
+}
+
+const getBadgeVariant = (dataType?: string | null) => {
+  if (!dataType) return "default"
+  const type = dataType.toLowerCase()
+  if (type === "number" || type === "int" || type === "float" || type === "double") return "success"
+  if (type === "phone") return "warning"
+  if (type === "biz-number" || type === "biz_number" || type === "business") return "info"
+  if (type === "string" || type === "text") return "default"
+  return "default"
+}
+
+const getDataTypeLabel = (type?: string | null) => {
+  if (!type) return ""
+  return type.toLowerCase()
 }
 
 function DraggableBadge({ col, disabled }: { col: any; disabled: boolean }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: col.backColumn,
+    id: col.name,
     data: col,
     disabled,
   })
@@ -54,11 +81,13 @@ function DraggableBadge({ col, disabled }: { col: any; disabled: boolean }) {
       className={`relative touch-none ${isDragging ? "opacity-0" : "opacity-100"}`}
     >
       <Badge
-        variant={col.required ? "error" : "info"}
-        className={`${!disabled ? "cursor-grab shadow-sm hover:shadow-md" : ""}`}
+        variant={getBadgeVariant(col.dataType)}
+        className={`${!disabled ? "cursor-grab shadow-sm hover:shadow-md" : ""} ${
+          col.required ? "ring-2 ring-red-500/50" : ""
+        }`}
         title={col.description}
       >
-        {col.name} {col.required && "*"}
+        {col.name} {col.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
       </Badge>
     </div>
   )
@@ -90,7 +119,7 @@ function DroppableCell({
 
 function DraggableMappedBadge({ col, onCancel }: { col: any; onCancel: () => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: col.backColumn,
+    id: col.name,
     data: col,
   })
 
@@ -102,16 +131,18 @@ function DraggableMappedBadge({ col, onCancel }: { col: any; onCancel: () => voi
       className={`absolute top-0.5 left-1/2 -translate-x-1/2 z-20 cursor-grab touch-none ${isDragging ? "opacity-0" : "opacity-100"}`}
     >
       <Badge
-        variant={col.required ? "error" : "info"}
+        variant={getBadgeVariant(col.dataType)}
         size="sm"
-        className="shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent"
+        className={`shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent ${
+          col.required ? "ring-2 ring-red-500/50" : ""
+        }`}
         title="드래그하여 이동하거나 더블 클릭하여 매핑 해제"
         onDoubleClick={(e) => {
           e.stopPropagation()
           onCancel()
         }}
       >
-        {col.name}
+        {col.name} {col.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
       </Badge>
     </div>
   )
@@ -182,7 +213,9 @@ export function DataGrid() {
   const lastContentRowIndex = useMemo(() => {
     // 1. 현재 매핑된 엑셀 컬럼 인덱스들만 추출
     const mappedExcelIndices = targetColumns
-      .filter((col) => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined)
+      .filter(
+        (col) => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined,
+      )
       .map((col) => col.excelColIndex as number)
 
     if (mappedExcelIndices.length === 0) return -1
@@ -212,15 +245,22 @@ export function DataGrid() {
     const currentRecordHeight = recordHeight || 1
 
     // 검사 범위 결정: 마지막 콘텐츠 행이 속한 레코드 세트의 끝까지 검사
-    const totalCheckRows = Math.ceil((lastContentRowIndex - sampleBaseRow + 1) / currentRecordHeight) * currentRecordHeight + sampleBaseRow
+    const totalCheckRows =
+      Math.ceil((lastContentRowIndex - sampleBaseRow + 1) / currentRecordHeight) *
+        currentRecordHeight +
+      sampleBaseRow
 
-    for (let i = sampleBaseRow + currentRecordHeight; i < totalCheckRows; i += currentRecordHeight) {
+    for (
+      let i = sampleBaseRow + currentRecordHeight;
+      i < totalCheckRows;
+      i += currentRecordHeight
+    ) {
       const recordRows = allData.slice(i, i + currentRecordHeight)
       let recordHasError = false
 
       for (const col of targetColumns) {
         if (col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined) {
-          const relativeRow = currentRecordHeight === 1 ? 0 : (col.relativeRowIndex || 0)
+          const relativeRow = currentRecordHeight === 1 ? 0 : col.relativeRowIndex || 0
           const targetRow = recordRows[relativeRow]
           const rowValues = targetRow ? rowToValues(targetRow) : Array(columnCount).fill("")
           const cellValue = String(rowValues[col.excelColIndex] || "").trim()
@@ -233,8 +273,8 @@ export function DataGrid() {
 
           // 2. 타입 검증 (분석이 완료된 경우에만)
           if (isAnalysisDone) {
-            const fieldSchema = schemaLookup.get(`${relativeRow + sampleBaseRow}-${col.excelColIndex}`)
-            if (fieldSchema && cellValue !== "" && !isValidType(cellValue, fieldSchema.type)) {
+            // 백엔드가 준 dataType과 regex 기준 검증으로 교체
+            if (cellValue !== "" && !isValidType(cellValue, col.dataType || "string", col.regex)) {
               recordHasError = true
               break
             }
@@ -249,7 +289,18 @@ export function DataGrid() {
       }
     }
     return indices
-  }, [allData, mappingResult, isAnalysisDone, isMappingConfirmed, sampleBaseRow, recordHeight, targetColumns, schemaLookup, lastContentRowIndex, columnCount])
+  }, [
+    allData,
+    mappingResult,
+    isAnalysisDone,
+    isMappingConfirmed,
+    sampleBaseRow,
+    recordHeight,
+    targetColumns,
+    schemaLookup,
+    lastContentRowIndex,
+    columnCount,
+  ])
 
   // 타입 에러가 있는지 전체 데이터(또는 분석된 데이터 범위)에 대해 체크
   const hasTypeError = useMemo(() => {
@@ -266,7 +317,7 @@ export function DataGrid() {
       for (const col of targetColumns) {
         // 매핑 정보가 있는 경우에만 검증
         if (col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined) {
-          const relativeRow = recordHeight === 1 ? 0 : (col.relativeRowIndex || 0)
+          const relativeRow = recordHeight === 1 ? 0 : col.relativeRowIndex || 0
           const targetRow = recordRows[relativeRow]
           const rowValues = targetRow ? rowToValues(targetRow) : Array(columnCount).fill("")
           const cellValue = String(rowValues[col.excelColIndex] || "").trim()
@@ -277,22 +328,30 @@ export function DataGrid() {
           }
 
           // 2. 타입 검증 (구조 해석 결과가 있는 경우)
-          const targetSchemaRow = relativeRow + sampleBaseRow
-          const fieldSchema = schemaLookup.get(`${targetSchemaRow}-${col.excelColIndex}`)
-          if (cellValue !== "" && fieldSchema && !isValidType(cellValue, fieldSchema.type)) {
+          // 백엔드가 준 dataType과 regex 기준 검증으로 교체
+          if (cellValue !== "" && !isValidType(cellValue, col.dataType || "string", col.regex)) {
             return true
           }
         }
       }
     }
     return false
-  }, [allData, mappingResult, isAnalysisDone, sampleBaseRow, targetColumns, schemaLookup, lastContentRowIndex, columnCount])
+  }, [
+    allData,
+    mappingResult,
+    isAnalysisDone,
+    sampleBaseRow,
+    targetColumns,
+    schemaLookup,
+    lastContentRowIndex,
+    columnCount,
+  ])
 
   const hasHeaderSelected = selectedHeaderRows.size > 0
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event
-    const draggedCol = targetColumns.find((c) => c.backColumn === active.id)
+    const draggedCol = targetColumns.find((c) => c.name === active.id)
     if (draggedCol) {
       setActiveCol(draggedCol)
     }
@@ -309,6 +368,58 @@ export function DataGrid() {
 
       // 헤더 시작 행으로부터의 상대적 위치 계산
       const relativeRow = r - headerBaseRow
+      // 데이터 단수(recordHeight)를 고려하여 실제 매칭될 데이터의 상대 행 계산
+      const targetDataRelativeRow = recordHeight === 1 ? 0 : relativeRow
+      const targetSchemaRow = targetDataRelativeRow + sampleBaseRow
+
+      // 드래그 중인 컬럼 정보 및 타입 확인
+      const draggedCol = active.data.current || targetColumns.find((col) => col.name === active.id)
+      const systemDataType = draggedCol?.dataType
+
+      // 드롭한 셀의 분석된 데이터 타입 확인 (상대 행 위치 기반)
+      const colSchema = schemaLookup.get(`${targetSchemaRow}-${c}`)
+
+      // 헤더와 데이터 영역 분석이 완료되었고 타입 정보가 존재하는 경우 타입 검증 수행
+      if (isAnalysisDone && colSchema && systemDataType) {
+        const sysType = systemDataType.toLowerCase()
+        const excType = colSchema.type.toLowerCase()
+        const systemRegex = draggedCol?.regex
+
+        // 1단계: 타입이 일치하는지 우선 확인 (동일한 타입군)
+        let isCompatible = false
+        if (sysType === excType) {
+          isCompatible = true
+        } else if (sysType === "string") {
+          isCompatible = true
+        } else if (sysType === "number" || sysType === "int" || sysType === "float" || sysType === "double") {
+          isCompatible = excType === "number"
+        } else if (sysType === "phone") {
+          isCompatible = excType === "phone"
+        } else if (sysType === "biz-number" || sysType === "biz_number") {
+          isCompatible = excType === "biz-number" || excType === "biz_number"
+        }
+
+        // 2단계: 타입이 일치하지 않을 때, 정규식(regex)을 적용하여 엑셀 샘플 데이터 값과 대조
+        if (!isCompatible) {
+          const sampleRow = allData[targetSchemaRow]
+          const sampleRowValues = sampleRow ? rowToValues(sampleRow) : []
+          const sampleValue = String(sampleRowValues[c] || "").trim()
+
+          // 백엔드 정규식 규격에 일치한다면 매칭 허용
+          if (systemRegex && isValidType(sampleValue, systemDataType, systemRegex)) {
+            isCompatible = true
+          }
+        }
+
+        if (!isCompatible) {
+          alert(
+            `타입이 일치하지 않아 매핑할 수 없습니다.\n` +
+            `• 시스템 컬럼 (${draggedCol.name}): ${getDataTypeLabel(systemDataType)}\n` +
+            `• 엑셀 데이터: ${getDataTypeLabel(colSchema.type)}`
+          )
+          return
+        }
+      }
 
       updateColumnMapping(String(active.id), excelHeaderName, c, relativeRow)
     }
@@ -375,7 +486,8 @@ export function DataGrid() {
             onChange={(e) => setIsMappingConfirmed(!e.target.checked)}
             className="w-4 h-4 cursor-pointer"
           />
-          <Label htmlFor="mapping-confirmation"
+          <Label
+            htmlFor="mapping-confirmation"
             className="text-sm font-semibold text-gray-700 cursor-pointer group-hover:text-blue-600 transition-colors"
           >
             매핑 정보 수정 모드
@@ -415,10 +527,11 @@ export function DataGrid() {
         <div className="flex items-center gap-2">
           <div className="mx-2 border-l h-6" />
           <Button
-            className={`shadow-md transition-all active:scale-95 ${isCompleteButtonDisabled
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-red-600 hover:bg-red-700 text-white"
-              }`}
+            className={`shadow-md transition-all active:scale-95 ${
+              isCompleteButtonDisabled
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-700 text-white"
+            }`}
             onClick={onCompleteClick}
             disabled={isCompleteButtonDisabled}
           >
@@ -429,43 +542,44 @@ export function DataGrid() {
       <div className="mt-6 flex flex-col">
         {/* 백엔드 시스템 컬럼 (D&D Source 영역) - 매핑 완료 시 스르륵 사라짐 */}
         <div
-          className={`overflow-hidden transition-all duration-500 ease-in-out ${isMappingConfirmed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100 mb-4"
-            }`}
+          className={`overflow-hidden transition-all duration-500 ease-in-out ${
+            isMappingConfirmed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100 mb-4"
+          }`}
         >
           <div
             className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
           >
-              <div className="flex justify-between items-center mb-2">
-                <div
-                  className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}
-                >
-                  매핑할 시스템 컬럼
+            <div className="flex justify-between items-center mb-2">
+              <div
+                className={`text-sm font-bold ${hasHeaderSelected ? "text-blue-800" : "text-gray-500"}`}
+              >
+                매핑할 시스템 컬럼
+              </div>
+              {!hasHeaderSelected && (
+                <div className="text-xs text-red-500 font-medium">
+                  * 아래 데이터 그리드에서 &apos;헤더&apos; 행을 먼저 선택해주세요.
                 </div>
-                {!hasHeaderSelected && (
-                  <div className="text-xs text-red-500 font-medium">
-                    * 아래 데이터 그리드에서 &apos;헤더&apos; 행을 먼저 선택해주세요.
-                  </div>
-                )}
-                {hasHeaderSelected && (
-                  <div className="text-xs text-blue-600 font-medium">
-                    드래그하여 아래 선택된 노란색 헤더 셀에 놓으세요.
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2 min-h-[28px]">
-                {unmappedColumns.map((col) => (
-                  <div
-                    key={col.backColumn}
-                    className={`transition-all duration-200 ${!hasHeaderSelected ? "opacity-40 grayscale pointer-events-none" : ""}`}
-                  >
-                    <DraggableBadge col={col} disabled={!hasHeaderSelected} />
-                  </div>
-                ))}
-                {unmappedColumns.length === 0 && targetColumns && targetColumns.length > 0 && (
-                  <div className="text-sm text-gray-500 italic">모든 컬럼이 매핑되었습니다.</div>
-                )}
-              </div>
+              )}
+              {hasHeaderSelected && (
+                <div className="text-xs text-blue-600 font-medium">
+                  드래그하여 아래 선택된 노란색 헤더 셀에 놓으세요.
+                </div>
+              )}
             </div>
+            <div className="flex flex-wrap gap-2 min-h-[28px]">
+              {unmappedColumns.map((col) => (
+                <div
+                  key={col.name}
+                  className={`transition-all duration-200 ${!hasHeaderSelected ? "opacity-40 grayscale pointer-events-none" : ""}`}
+                >
+                  <DraggableBadge col={col} disabled={!hasHeaderSelected} />
+                </div>
+              ))}
+              {unmappedColumns.length === 0 && targetColumns && targetColumns.length > 0 && (
+                <div className="text-sm text-gray-500 italic">모든 컬럼이 매핑되었습니다.</div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="overflow-x-auto w-full border border-gray-200 ">
@@ -479,7 +593,10 @@ export function DataGrid() {
                 const isEtc = selectedEtcRows.has(rowIndex)
                 const rowValues = isEmptyRow ? Array(columnCount).fill("") : rowToValues(row)
 
-                const isRecordEnd = recordHeight > 1 && rowIndex >= sampleBaseRow && (rowIndex - sampleBaseRow + 1) % recordHeight === 0
+                const isRecordEnd =
+                  recordHeight > 1 &&
+                  rowIndex >= sampleBaseRow &&
+                  (rowIndex - sampleBaseRow + 1) % recordHeight === 0
                 const isRowInvalid = invalidRowIndices.has(rowIndex)
 
                 return (
@@ -505,7 +622,8 @@ export function DataGrid() {
                       // 해당 위치(열, 상대행)에 매핑된 시스템 컬럼이 있는지 확인
                       const mappedCol = targetColumns.find(
                         (col) =>
-                          col.excelColIndex === colIndex && (recordHeight === 1 ? true : col.relativeRowIndex === relativeRow),
+                          col.excelColIndex === colIndex &&
+                          (recordHeight === 1 ? true : col.relativeRowIndex === relativeRow),
                       )
 
                       const isInvalid =
@@ -513,14 +631,21 @@ export function DataGrid() {
                         rowIndex <= lastContentRowIndex && // 실제 값이 있는 마지막 행까지만 검사
                         mappedCol && // 매핑된 칸만 검증
                         ((mappedCol.required && String(cell || "").trim() === "") || // 필수 값 누락 체크
-                          (isAnalysisDone && fieldSchema &&
+                          (isAnalysisDone && 
                             String(cell || "").trim() !== "" &&
-                            !isValidType(String(cell), fieldSchema.type))) // 타입 불일치 체크
-
+                            !isValidType(String(cell), mappedCol.dataType || "string", mappedCol.regex))) // 변경: 매핑된 시스템 컬럼 기준 정밀 검증
 
                       const isCellWhite = selectedHeaderCells.has(`${rowIndex}-${colIndex}`)
                       const isHeaderRowSelected = selectedHeaderRows.has(rowIndex)
                       const cellId = `${rowIndex}-${colIndex}`
+
+                      // 분석된 컬럼 데이터 타입 구하기 (헤더 행의 상대적 위치 및 데이터 단수를 고려한 타겟 행 매칭)
+                      const relativeHeaderRow = rowIndex - headerBaseRow
+                      const targetDataRelativeRow = recordHeight === 1 ? 0 : relativeHeaderRow
+                      const targetHeaderSchemaRow = targetDataRelativeRow + sampleBaseRow
+                      const colSchema = isHeaderRowSelected
+                        ? schemaLookup.get(`${targetHeaderSchemaRow}-${colIndex}`)
+                        : null
 
                       // 통합된 targetColumns에서 이 셀에 매핑된 정보가 있는지 확인
                       const mappedColumn = targetColumns.find(
@@ -546,7 +671,10 @@ export function DataGrid() {
                             ${mode === "HEADER" && isHeaderRowSelected ? "cursor-pointer" : ""}
                           `}
                         >
-                          <DroppableCell id={cellId} isSelected={isHeaderRowSelected && !isCellEmpty}>
+                          <DroppableCell
+                            id={cellId}
+                            isSelected={isHeaderRowSelected && !isCellEmpty}
+                          >
                             <div
                               className={`flex flex-col items-center justify-center p-1 relative transition-[min-height] duration-200 ${isHeaderRowSelected ? "min-h-[60px]" : "min-h-[50px]"}`}
                             >
@@ -563,6 +691,7 @@ export function DataGrid() {
                                   readOnly={isHeaderRowSelected}
                                 />
                               </div>
+
                               {/* 매핑된 뱃지 및 체크 아이콘 표시 영역 */}
                               {isHeaderRowSelected && mappedColumn && (
                                 <>
@@ -570,7 +699,7 @@ export function DataGrid() {
                                     <DraggableMappedBadge
                                       col={mappedColumn}
                                       onCancel={() =>
-                                        updateColumnMapping(mappedColumn.backColumn, null, null)
+                                        updateColumnMapping(mappedColumn.name, null, null)
                                       }
                                     />
                                   ) : (
@@ -634,10 +763,13 @@ export function DataGrid() {
       <DragOverlay dropAnimation={null}>
         {activeCol ? (
           <Badge
-            variant={activeCol.required ? "error" : "info"}
-            className="cursor-grabbing shadow-lg scale-105  min-w-[100px] justify-center"
+            variant={getBadgeVariant(activeCol.dataType)}
+            className={`cursor-grabbing shadow-lg scale-105 min-w-[100px] justify-center ${
+              activeCol.required ? "ring-2 ring-red-500/50" : ""
+            }`}
           >
-            {activeCol.name} {activeCol.required && "*"}
+            {activeCol.name}{" "}
+            {activeCol.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
           </Badge>
         ) : null}
       </DragOverlay>
