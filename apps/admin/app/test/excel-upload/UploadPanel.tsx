@@ -11,26 +11,41 @@ export function UploadPanel() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0] || null
     setFile(selectedFile)
+    if (selectedFile) {
+      setTimeout(() => {
+        handleUpload()
+      }, 0)
+    }
+  }
+
+  const handleInputClick = (e: React.MouseEvent<HTMLInputElement>) => {
+    const element = e.target as HTMLInputElement
+    element.value = ""
   }
 
   return (
     <div className="w-1/5 border-r pr-6 flex flex-col gap-4">
       <Heading level={2}>엑셀 파일 업로드</Heading>
-      <input ref={fileInputRef} type="file" accept=".xlsx, .xls" onChange={handleFileChange} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx, .xls"
+        onClick={handleInputClick}
+        onChange={handleFileChange}
+      />
       <div className="flex gap-2">
-        <Button onClick={handleUpload} disabled={!file}>
-          화면 출력
-        </Button>
         <Button
           variant="secondary"
+          className="w-full"
           onClick={() => {
             setFile(null)
             if (fileInputRef.current) {
               fileInputRef.current.value = ""
             }
           }}
+          disabled={!file}
         >
-          취소
+          초기화
         </Button>
       </div>
       {fileInfo && (
