@@ -239,8 +239,8 @@ export function DataGrid() {
   // 에러가 있는 레코드(멀티 행 묶음)의 모든 행 인덱스를 추출
   const invalidRowIndices = useMemo(() => {
     const indices = new Set<number>()
-    // 매핑이 확인되었거나 분석이 완료된 경우에만 검증 시작
-    if ((!isAnalysisDone && !isMappingConfirmed) || lastContentRowIndex === -1) return indices
+    // 매핑이 하나라도 되어 있는 경우 검증 시작
+    if (lastContentRowIndex === -1) return indices
 
     const currentRecordHeight = recordHeight || 1
 
@@ -251,7 +251,7 @@ export function DataGrid() {
       sampleBaseRow
 
     for (
-      let i = sampleBaseRow + currentRecordHeight;
+      let i = sampleBaseRow;
       i < totalCheckRows;
       i += currentRecordHeight
     ) {
@@ -271,13 +271,11 @@ export function DataGrid() {
             break
           }
 
-          // 2. 타입 검증 (분석이 완료된 경우에만)
-          if (isAnalysisDone) {
-            // 백엔드가 준 dataType과 regex 기준 검증으로 교체
-            if (cellValue !== "" && !isValidType(cellValue, col.dataType || "string", col.regex)) {
-              recordHasError = true
-              break
-            }
+          // 2. 타입 검증
+          // 백엔드가 준 dataType과 regex 기준 검증으로 교체
+          if (cellValue !== "" && !isValidType(cellValue, col.dataType || "string", col.regex)) {
+            recordHasError = true
+            break
           }
         }
       }
@@ -292,7 +290,6 @@ export function DataGrid() {
   }, [
     allData,
     mappingResult,
-    isAnalysisDone,
     isMappingConfirmed,
     sampleBaseRow,
     recordHeight,
@@ -304,7 +301,7 @@ export function DataGrid() {
 
   // 타입 에러가 있는지 전체 데이터(또는 분석된 데이터 범위)에 대해 체크
   const hasTypeError = useMemo(() => {
-    if (!isAnalysisDone || lastContentRowIndex === -1) return false
+    if (lastContentRowIndex === -1) return false
 
     const recordHeight = mappingResult?.recordHeight || 1
 
@@ -339,7 +336,6 @@ export function DataGrid() {
   }, [
     allData,
     mappingResult,
-    isAnalysisDone,
     sampleBaseRow,
     targetColumns,
     schemaLookup,
@@ -451,13 +447,18 @@ export function DataGrid() {
     return targetColumns.filter((c) => !c.frontColumn)
   }, [targetColumns])
 
+  // 매핑되지 않은 필수 시스템 컬럼이 있는지 확인
+  const hasUnmappedRequiredColumns = useMemo(() => {
+    return targetColumns.some((col) => col.required && !col.frontColumn)
+  }, [targetColumns])
+
   // 수정 완료 버튼 활성화 조건
   // 1. 구조 해석 버튼을 누른 후여야 함 (isAnalysisDone)
   // 2. 타입이 맞지 않는 데이터가 없어야 함 (!hasTypeError)
-  // 3. 모든 컬럼 뱃지가 매핑되어야 함 (unmappedColumns.length === 0)
+  // 3. 필수 컬럼 뱃지가 모두 매핑되어야 함 (!hasUnmappedRequiredColumns)
   const isCompleteButtonDisabled = useMemo(() => {
-    return !isAnalysisDone || hasTypeError || unmappedColumns.length > 0
-  }, [isAnalysisDone, hasTypeError, unmappedColumns])
+    return !isAnalysisDone || hasTypeError || hasUnmappedRequiredColumns
+  }, [isAnalysisDone, hasTypeError, hasUnmappedRequiredColumns])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -477,7 +478,7 @@ export function DataGrid() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      {wasInitialFullMapping && unmappedColumns.length === 0 && (
+      {unmappedColumns.length === 0 && (
         <div className="flex items-center gap-2 cursor-pointer group mb-4">
           <input
             type="checkbox"
@@ -627,12 +628,11 @@ export function DataGrid() {
                       )
 
                       const isInvalid =
-                        rowIndex >= sampleBaseRow + recordHeight && // 데이터 샘플 영역 바로 다음 행부터 검증 시작
+                        rowIndex >= sampleBaseRow && // 데이터 샘플 영역 첫 행부터 검증 시작
                         rowIndex <= lastContentRowIndex && // 실제 값이 있는 마지막 행까지만 검사
                         mappedCol && // 매핑된 칸만 검증
                         ((mappedCol.required && String(cell || "").trim() === "") || // 필수 값 누락 체크
-                          (isAnalysisDone && 
-                            String(cell || "").trim() !== "" &&
+                          (String(cell || "").trim() !== "" &&
                             !isValidType(String(cell), mappedCol.dataType || "string", mappedCol.regex))) // 변경: 매핑된 시스템 컬럼 기준 정밀 검증
 
                       const isCellWhite = selectedHeaderCells.has(`${rowIndex}-${colIndex}`)

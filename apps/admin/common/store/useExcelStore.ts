@@ -3,8 +3,87 @@ import axios from "axios"
 
 export type SelectionMode = "HEADER" | "DATA" | "ETC" | null
 
-export const rowToValues = (row: any) =>
-  (Object.values(row).find((v) => Array.isArray(v)) as any[]) || Object.values(row)
+export const rowToValues = (row: any) => {
+  if (row === null || row === undefined) return []
+  return (Object.values(row).find((v) => Array.isArray(v)) as any[]) || Object.values(row)
+}
+
+// 행 데이터에서 빈 열들을 잘라내기 위한 좌우 경계값 계산 헬퍼 함수
+export const getActiveColumnBounds = (rawRows: any[]): { left: number; right: number } => {
+  if (rawRows.length === 0) return { left: 0, right: 0 }
+
+  const firstRowValues = rowToValues(rawRows[0])
+  const maxCols = firstRowValues.length
+
+  let left = 0
+  let right = maxCols - 1
+
+  // 1. 왼쪽 빈 컬럼 오프셋 구하기
+  for (let c = 0; c < maxCols; c++) {
+    const isAllEmpty = rawRows.every((row) => {
+      const rowValues = rowToValues(row)
+      const val = rowValues[c]
+      return val === undefined || val === null || String(val).trim() === ""
+    })
+    if (isAllEmpty) {
+      left++
+    } else {
+      break
+    }
+  }
+
+  // 2. 오른쪽 빈 컬럼 오프셋 구하기
+  for (let c = maxCols - 1; c >= left; c--) {
+    const isAllEmpty = rawRows.every((row) => {
+      const rowValues = rowToValues(row)
+      const val = rowValues[c]
+      return val === undefined || val === null || String(val).trim() === ""
+    })
+    if (isAllEmpty) {
+      right--
+    } else {
+      break
+    }
+  }
+
+  return { left, right }
+}
+
+// 행 데이터에서 빈 행들을 잘라내기 위한 상하 경계값 계산 헬퍼 함수
+export const getActiveRowBounds = (rawRows: any[]): { top: number; bottom: number } => {
+  if (rawRows.length === 0) return { top: 0, bottom: 0 }
+
+  let top = 0
+  let bottom = rawRows.length - 1
+
+  // 1. 위쪽 빈 행 오프셋 구하기
+  for (let r = 0; r < rawRows.length; r++) {
+    const rowValues = rowToValues(rawRows[r])
+    const isAllEmpty = rowValues.every(
+      (val) => val === undefined || val === null || String(val).trim() === ""
+    )
+    if (isAllEmpty) {
+      top++
+    } else {
+      break
+    }
+  }
+
+  // 2. 아래쪽 빈 행 오프셋 구하기
+  for (let r = rawRows.length - 1; r >= top; r--) {
+    const rowValues = rowToValues(rawRows[r])
+    const isAllEmpty = rowValues.every(
+      (val) => val === undefined || val === null || String(val).trim() === ""
+    )
+    if (isAllEmpty) {
+      bottom--
+    } else {
+      break
+    }
+  }
+
+  return { top, bottom }
+}
 
 interface TargetColumn {
   name: string
@@ -43,6 +122,8 @@ interface ExcelState {
   isMappingConfirmed: boolean
   isAnalysisDone: boolean
   wasInitialFullMapping: boolean
+  startColIndex: number // 추가된 속성
+  startRowIndex: number // 추가된 속성
 }
 
 interface ExcelActions {
@@ -99,6 +180,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   isMappingConfirmed: false,
   isAnalysisDone: false,
   wasInitialFullMapping: false,
+  startColIndex: 0,
+  startRowIndex: 0,
 
   confirmMappingCompletion: () => {
     const allMapped = get().targetColumns.every((col) => col.frontColumn)
@@ -170,6 +253,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         isMappingConfirmed: false,
         isAnalysisDone: false,
         wasInitialFullMapping: false,
+        startColIndex: 0,
+        startRowIndex: 0,
       })
     } else {
       get().resetAll()
@@ -244,6 +329,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       isMappingConfirmed: false,
       isAnalysisDone: false,
       wasInitialFullMapping: false,
+      startColIndex: 0,
+      startRowIndex: 0,
     })
   },
 
@@ -261,7 +348,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       formData.append("file", file)
       formData.append("sheetNo", "0")
       formData.append("page", (chunkIndex + 1).toString())
-      formData.append("size", "1000")
+      formData.append("size", "15")
 
       const response = await axios.post("/api/common/upload-excel", formData, {
         onUploadProgress: (progressEvent) => {
@@ -312,6 +399,17 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         const rawRows = response.data.dataList || response.data.data?.dataList || []
         const totalRows = rawRows.length
 
+        // 유효한 열 영역(Bounds) 감지
+        const { left, right } = getActiveColumnBounds(rawRows)
+        set({ startColIndex: left })
+
+        // 유효한 행 영역(Bounds) 감지 및 잘라내기
+        const { top, bottom } = getActiveRowBounds(rawRows)
+        set({ startRowIndex: top })
+
+        // 유효 행 영역만큼 데이터 슬라이싱
+        const slicedRows = rawRows.slice(top, bottom + 1)
+
         const sanitize = (val: any): any => {
           if (typeof val === "string" && /^\d+\.0$/.test(val)) {
             return val.replace(/\.0$/, "")
@@ -319,19 +417,25 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
           return val
         }
 
-        const newRows = rawRows.map((row: any, idx: number) => {
+        const newRows = slicedRows.map((row: any, idx: number) => {
           if (isInitial && idx % 100 === 0) {
             set({ uploadProgress: 55 + Math.round((idx / totalRows) * 35) })
           }
           const sanitizedRow = { ...row }
           Object.keys(sanitizedRow).forEach((key) => {
             if (Array.isArray(sanitizedRow[key])) {
-              sanitizedRow[key] = sanitizedRow[key].map(sanitize)
+              // 감지된 유효 영역 [left, right] 범위로 슬라이싱 수행
+              sanitizedRow[key] = sanitizedRow[key].slice(left, right + 1).map(sanitize)
             } else {
               sanitizedRow[key] = sanitize(sanitizedRow[key])
             }
           })
-          return sanitizedRow
+          
+          // 원래 엑셀 시트에서의 절대 행 인덱스(0-based)를 보존하여 주입
+          return {
+            ...sanitizedRow,
+            rowIndex: idx + top
+          }
         })
 
         set((prev) => {
@@ -356,24 +460,25 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
             if (savedHeaderStructure) {
               // 백엔드에서 저장된 headerStructure를 함께 보내준 경우 (저장된 정보 우선 사용)
-              const hBaseRow = savedHeaderStructure.headerStartRow || 0
+              // top (행 슬라이스 오프셋)을 차감하여 슬라이스된 newRows 기준의 상대 좌표로 변환
+              const hBaseRow = Math.max(0, (savedHeaderStructure.headerStartRow ?? 0) - top)
               const hEndRow =
                 savedHeaderStructure.headerEndRow !== undefined
-                  ? savedHeaderStructure.headerEndRow
+                  ? Math.max(0, savedHeaderStructure.headerEndRow - top)
                   : hBaseRow
-              const sBaseRow = savedHeaderStructure.dataStartRow || hEndRow + 1
+              const sBaseRow = Math.max(0, (savedHeaderStructure.dataStartRow ?? (hEndRow + 1)) - top)
               const sEndRow =
                 savedHeaderStructure.dataEndRow !== undefined
-                  ? savedHeaderStructure.dataEndRow
+                  ? Math.max(0, savedHeaderStructure.dataEndRow - top)
                   : sBaseRow
 
               const eBaseRow =
                 savedHeaderStructure.etcStartRow !== undefined
-                  ? savedHeaderStructure.etcStartRow
+                  ? Math.max(0, savedHeaderStructure.etcStartRow - top)
                   : 0
               const eEndRow =
                 savedHeaderStructure.etcEndRow !== undefined
-                  ? savedHeaderStructure.etcEndRow
+                  ? Math.max(0, savedHeaderStructure.etcEndRow - top)
                   : hBaseRow > 0
                     ? hBaseRow - 1
                     : -1
@@ -384,8 +489,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
               }
               const hHeight = hEndRow - hBaseRow + 1
 
-              // 확정된 헤더 영역 내에서 excelColIndex 매칭
-              for (let i = hBaseRow; i <= hEndRow && i < newRows.length; i++) {
+              // 확정된 헤더 영역 내에서 excelColIndex 매칭 (상위 20행 전체를 검색하여 정밀 복원 시도)
+              let matchedAny = false
+              for (let i = 0; i < Math.min(newRows.length, 20); i++) {
                 const rowValues = rowToValues(newRows[i]).map((v) => String(v || "").trim())
                 targetColumns.forEach((col) => {
                   if (col.frontColumn) {
@@ -393,7 +499,17 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                     if (colIdx !== -1) {
                       col.excelColIndex = colIdx
                       col.relativeRowIndex = i - hBaseRow
+                      matchedAny = true
                     }
+                  }
+                })
+              }
+
+              // 텍스트 매칭으로 찾지 못한 경우, 기존 저장된 인덱스에서 슬라이싱 오프셋(left)을 차감하여 그리드 인덱스(0, 1...)에 맞춰 강제 복원
+              if (!matchedAny) {
+                targetColumns.forEach((col) => {
+                  if (col.excelColIndex !== null && col.excelColIndex !== undefined) {
+                    col.excelColIndex = Math.max(0, col.excelColIndex - left)
                   }
                 })
               }
@@ -648,16 +764,17 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       // targetSysType: mappingResult?.targetSysType || "UNKNOWN",
       fileName: fileInfo?.name,
       structures: {
-        headerStartRow: headerBaseRow,
-        headerEndRow: headerEndRow,
-        dataStartRow: sampleBaseRow,
-        dataEndRow: dataEndRow,
-        etcStartRow: etcBaseRow,
-        etcEndRow: etcEndRow,
-        // originalHeaderColumns: originalHeaderColumns
+        headerStartRow: headerBaseRow + get().startRowIndex,
+        headerEndRow: headerEndRow + get().startRowIndex,
+        dataStartRow: sampleBaseRow + get().startRowIndex,
+        dataEndRow: dataEndRow + get().startRowIndex,
+        etcStartRow: etcBaseRow + get().startRowIndex,
+        etcEndRow: etcEndRow + get().startRowIndex,
+        startColIndex: get().startColIndex, // 스토어의 시작 오프셋 인덱스 반영
+        startRowIndex: get().startRowIndex, // 스토어의 행 오프셋 인덱스 반영
       },
       // userMapping: userMapping,
-      targetColumns: targetColumns, // 통합된 전체 데이터 전송
+      targetColumns: targetColumns, // 통합된 전체 데이터 전송 (이미 슬라이스된 상태의 인덱스가 들어가 있음)
     }
 
     console.log("Modified Data:", changes)

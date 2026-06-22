@@ -12,8 +12,15 @@ export function UploadPanel() {
     const selectedFile = e.target.files?.[0] || null
     setFile(selectedFile)
     if (selectedFile) {
-      handleUpload()
+      setTimeout(() => {
+        handleUpload()
+      }, 0)
     }
+  }
+
+  const handleInputClick = (e: React.MouseEvent<HTMLInputElement>) => {
+    const element = e.target as HTMLInputElement
+    element.value = ""
   }
 
   return (
@@ -23,9 +30,31 @@ export function UploadPanel() {
         <label htmlFor="file-upload" className="cursor-pointer text-blue-600 hover:underline">
           파일 선택
         </label>
-        
       </div>
-      <input ref={fileInputRef} id="file-upload" type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileChange}  />
+      <input
+        ref={fileInputRef}
+        id="file-upload"
+        type="file"
+        accept=".xlsx, .xls"
+        className="hidden"
+        onClick={handleInputClick}
+        onChange={handleFileChange}
+      />
+      <div className="flex gap-2">
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={() => {
+            setFile(null)
+            if (fileInputRef.current) {
+              fileInputRef.current.value = ""
+            }
+          }}
+          disabled={!file}
+        >
+          초기화
+        </Button>
+      </div>
       {fileInfo && (
         <div className="bg-gray-100 p-4 rounded flex flex-col gap-3">
           <div>
