@@ -241,3 +241,54 @@
 3. **자동 매칭 (Auto-Mapping)**
    - 엑셀 헤더의 텍스트(예: "이메일")와 시스템 컬럼의 텍스트(예: "email" 또는 "이메일") 간의 유사도(Levenshtein 거리 등)를 분석하여 1차적으로 자동 매핑을 수행함.
    - 사용자는 상단의 `[✨ 자동 매핑]` 버튼을 클릭한 후, 잘못 매핑된 소수의 컬럼만 수동으로 변경하면 됨.
+
+## 20. 버그 수정 및 자동 영역 감지 고도화 (2026년 6월 23일)
+
+### 🐛 버그 수정
+
+- **헤더 행 개수 저장 누락 (`headerEndRow`)**:
+  - 템플릿 저장 시 `headerStartRow`만 저장하고 `headerEndRow`를 누락하여, 다시 열면 2단 헤더가 1단으로 돌아가는 문제 수정.
+  - `structures` 객체에 `headerEndRow = headerBaseRow + headerHeight - 1`, `dataEndRow = sampleBaseRow + recordHeight - 1` 추가.
+
+- **컬럼 매핑 뱃지 위치(`relativeRowIndex`) 저장 누락**:
+  - 백엔드 `SysMetadata` DTO에 `relativeRowIndex` 필드가 없어 Jackson이 조용히 버리던 문제 수정.
+  - `ExcelApiDto.java`의 `SysMetadata` 클래스에 `private Integer relativeRowIndex;` 추가.
+  - 결과: 저장 후 다시 열어도 뱃지가 항상 첫 번째 행에만 박히는 현상 해결.
+
+- **SqlSession 커넥션 누수 (Connection Leak)**:
+  - `ExcelService.getExcelList()`, `getExcelCount()` 에서 `sqlSessionFactory.openSession()`을 열기만 하고 닫지 않아, 파일 업로드를 반복할수록 DB 커넥션 풀이 고갈되어 백엔드가 다운되던 치명적 버그 수정.
+  - 두 메서드 모두 `try (SqlSession sqlSession = ...)` 패턴 적용.
+
+- **파일 재선택 시 `fileKey` 미초기화**:
+  - `handleUpload`의 초기화 `set()` 블록에 `fileKey: null`이 빠져 있어, 이전 파일의 `fileKey`가 잔존하는 타이밍 버그 수정.
+
+### ✨ 자동 구조 감지 (타입 시그니처 기반)
+
+저장된 매핑이 없는 **최초 업로드 상황**에서 헤더/데이터 영역과 레코드 높이를 자동으로 추정하는 `detectDataArea()` 함수를 구현했습니다.
+
+**핵심 아이디어 (사용자 제안):**
+> 행을 타입 시그니처로 표현하고, 시그니처가 반복되는 패턴으로 구조를 파악한다.
+
+**알고리즘:**
+
+1. **셀 타입 판별**: 하이픈·쉼표 제거 후 `Number()` 변환 가능 여부로 `number` / `string` / `empty` 구분.
+   - `"010-1234-5678"` → 하이픈 제거 → `"01012345678"` → `number`
+   - `"500,000"` → 콤마 제거 → `"500000"` → `number`
+   - `"삼성전자"` → `string`
+
+2. **행 타입 시그니처 생성**: `["string", "number", "string", "number"]`
+
+3. **전체 빈 행 무시**: 모든 셀이 `empty`인 행은 스킵.
+
+4. **헤더 판별**: `number`가 하나도 없는 행 = 헤더 (`["string", "string", "empty", "string"]`)
+
+5. **데이터 시작 탐지**: 처음으로 `number`가 등장하는 행 = 데이터 시작
+
+6. **레코드 높이 탐지**:
+   - `recordHeight=1`: 시그니처 A가 바로 다음 행에 반복 `[A, A, A, ...]`
+   - `recordHeight=2`: 시그니처 A·B가 교대 반복 `[A, B, A, B, ...]`
+
+**향후 해결 과제 (함께 논의 중):**
+- 잘못된 데이터(엉뚱한 타입)가 섞인 경우 시그니처 패턴이 깨지는 문제.
+- 방향 후보: ①다수결(5~10행 중 최빈 시그니처 사용) ②허용 오차(80% 일치면 같은 패턴) ③열별 타입 투표
+- 단서: "헤더가 2행 이상이면 데이터도 2행 이상인 경우가 많다" → 헤더 행 수를 레코드 높이 추정의 힌트로 활용 가능.
