@@ -85,6 +85,13 @@ export const getActiveRowBounds = (rawRows: any[]): { top: number; bottom: numbe
   return { top, bottom }
 }
 
+interface ValidationError {
+  rowIndex: number
+  columnCode: string
+  errorMessage: string
+  invalidValue?: string
+}
+
 interface TargetColumn {
   name: string
   description: string
@@ -98,6 +105,7 @@ interface TargetColumn {
 
 interface ExcelState {
   file: File | null
+  fileKey: string | null
   fileInfo: { name: string; size: number } | null
   allData: any[]
   allOriginalData: any[]
@@ -122,20 +130,25 @@ interface ExcelState {
   isMappingConfirmed: boolean
   isAnalysisDone: boolean
   wasInitialFullMapping: boolean
-  startColIndex: number // 추가된 속성
-  startRowIndex: number // 추가된 속성
+  startColIndex: number
+  startRowIndex: number
+  validationErrors: any[]
+  selectedSystemColumn: any | null
 }
 
 interface ExcelActions {
   setFile: (file: File | null) => void
-  setPage: (page: number) => void
   setMode: (mode: SelectionMode) => void
+  setPage: (page: number) => void
+  setValidationErrors: (errors: any[]) => void
+  setSelectedSystemColumn: (col: any | null) => void
   resetSelection: () => void
   resetAll: () => void
 
   fetchChunk: (chunkIndex: number, isInitial?: boolean) => Promise<void>
   handleUpload: () => void
-  handleExtractModifiedData: () => void
+  handleValidateExcelData: () => void
+  setValidationErrors: (errors: ValidationError[]) => void
 
   handleRowClick: (rowIndex: number) => void
   handleHeaderCellClick: (rowIndex: number, colIndex: number) => void
@@ -155,6 +168,7 @@ interface ExcelActions {
 
 export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   file: null,
+  fileKey: null,
   fileInfo: null,
   allData: [],
   allOriginalData: [],
@@ -184,7 +198,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   startRowIndex: 0,
 
   confirmMappingCompletion: () => {
-    const allMapped = get().targetColumns.every((col) => col.frontColumn)
+    const allMapped = get().targetColumns.every(
+      (col) => col.excelColIndex !== null && col.excelColIndex !== undefined,
+    )
     if (allMapped) {
       set({ isMappingConfirmed: true })
     }
@@ -192,7 +208,9 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
 
   setIsMappingConfirmed: (isMappingConfirmed) => {
     if (isMappingConfirmed) {
-      const allMapped = get().targetColumns.every((col) => col.frontColumn)
+      const allMapped = get().targetColumns.every(
+        (col) => col.excelColIndex !== null && col.excelColIndex !== undefined,
+      )
       if (!allMapped) return
     }
     set({ isMappingConfirmed })
@@ -255,6 +273,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         wasInitialFullMapping: false,
         startColIndex: 0,
         startRowIndex: 0,
+        validationErrors: [],
+        selectedSystemColumn: null,
       })
     } else {
       get().resetAll()
@@ -331,8 +351,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       wasInitialFullMapping: false,
       startColIndex: 0,
       startRowIndex: 0,
+      validationErrors: [],
+      selectedSystemColumn: null,
     })
   },
+
+  setSelectedSystemColumn: (col) => set({ selectedSystemColumn: col }),
 
   fetchChunk: async (chunkIndex, isInitial = false) => {
     const { loadedChunks, file } = get()
@@ -362,6 +386,12 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
       if (response.data) {
         if (isInitial) {
           set({ uploadProgress: 55 })
+          
+          const backendFileKey = response.data.data?.uploadExcelKey || response.data.uploadExcelKey || response.data.fileKey || response.data.data?.fileKey || response.data.file_key || response.data.data?.file_key || null
+          if (backendFileKey) {
+            set({ fileKey: backendFileKey })
+          }
+
           // 첫 청크 로드 시 targetColumns가 서버 응답에 있다면 상태에 저장합니다.
           const backendTargetColumns =
             response.data.targetColumns || response.data.data?.targetColumns
@@ -489,29 +519,38 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
               }
               const hHeight = hEndRow - hBaseRow + 1
 
-              // 확정된 헤더 영역 내에서 excelColIndex 매칭 (상위 20행 전체를 검색하여 정밀 복원 시도)
-              let matchedAny = false
-              for (let i = 0; i < Math.min(newRows.length, 20); i++) {
+              // 하이브리드 매칭: 기본적으로 위치(Index)를 유지하되, 위치가 깨졌다면 이름(frontColumn)으로 폴백(Fallback)
+              for (let i = hBaseRow; i <= hEndRow; i++) {
+                if (i >= newRows.length) break;
                 const rowValues = rowToValues(newRows[i]).map((v) => String(v || "").trim())
+                
                 targetColumns.forEach((col) => {
+                  let resolvedIndex = col.excelColIndex !== null && col.excelColIndex !== undefined 
+                                      ? Math.max(0, col.excelColIndex - left) 
+                                      : null;
+
                   if (col.frontColumn) {
-                    const colIdx = rowValues.indexOf(col.frontColumn.trim())
-                    if (colIdx !== -1) {
-                      col.excelColIndex = colIdx
-                      col.relativeRowIndex = i - hBaseRow
-                      matchedAny = true
+                    const expectedName = col.frontColumn.trim()
+                    // 1. 해당 위치(resolvedIndex)의 이름이 다르다면, 열이 밀렸는지 의심
+                    if (resolvedIndex !== null && rowValues[resolvedIndex] !== expectedName) {
+                      const foundIdx = rowValues.indexOf(expectedName);
+                      // 2. 다른 곳에서 이름이 발견되었다면 인덱스를 갱신 (위치 깨짐 복구)
+                      if (foundIdx !== -1) {
+                        resolvedIndex = foundIdx;
+                        col.relativeRowIndex = i - hBaseRow;
+                      }
+                    } 
+                    // 3. 처음부터 위치 정보가 없었다면 이름으로 탐색
+                    else if (resolvedIndex === null) {
+                      const foundIdx = rowValues.indexOf(expectedName);
+                      if (foundIdx !== -1) {
+                        resolvedIndex = foundIdx;
+                        col.relativeRowIndex = i - hBaseRow;
+                      }
                     }
                   }
-                })
-              }
-
-              // 텍스트 매칭으로 찾지 못한 경우, 기존 저장된 인덱스에서 슬라이싱 오프셋(left)을 차감하여 그리드 인덱스(0, 1...)에 맞춰 강제 복원
-              if (!matchedAny) {
-                targetColumns.forEach((col) => {
-                  if (col.excelColIndex !== null && col.excelColIndex !== undefined) {
-                    col.excelColIndex = Math.max(0, col.excelColIndex - left)
-                  }
-                })
+                  col.excelColIndex = resolvedIndex;
+                });
               }
 
               const detectedSampleRows = new Set<number>()
@@ -564,18 +603,34 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                 const hBaseRow = sortedRows[0]
                 const hHeight = sortedRows.length // 연속된 행이라고 가정 (또는 마지막-처음 + 1)
 
-                // 2. 확정된 헤더 영역 내에서 각 컬럼의 excelColIndex를 정확히 매칭
+                // 2. 하이브리드 매칭 (위치 기반 우선, 깨지면 이름 폴백)
                 for (let i = hBaseRow; i < hBaseRow + hHeight; i++) {
+                  if (i >= newRows.length) break;
                   const rowValues = rowToValues(newRows[i]).map((v) => String(v || "").trim())
+                  
                   targetColumns.forEach((col) => {
+                    let resolvedIndex = col.excelColIndex !== null && col.excelColIndex !== undefined 
+                                        ? col.excelColIndex 
+                                        : null;
+
                     if (col.frontColumn) {
-                      const colIdx = rowValues.indexOf(col.frontColumn.trim())
-                      if (colIdx !== -1) {
-                        col.excelColIndex = colIdx
-                        col.relativeRowIndex = i - hBaseRow
+                      const expectedName = col.frontColumn.trim()
+                      if (resolvedIndex !== null && rowValues[resolvedIndex] !== expectedName) {
+                        const foundIdx = rowValues.indexOf(expectedName);
+                        if (foundIdx !== -1) {
+                          resolvedIndex = foundIdx;
+                          col.relativeRowIndex = i - hBaseRow;
+                        }
+                      } else if (resolvedIndex === null) {
+                        const foundIdx = rowValues.indexOf(expectedName);
+                        if (foundIdx !== -1) {
+                          resolvedIndex = foundIdx;
+                          col.relativeRowIndex = i - hBaseRow;
+                        }
                       }
                     }
-                  })
+                    col.excelColIndex = resolvedIndex;
+                  });
                 }
 
                 // 3. 데이터 영역 자동 추정 (헤더 바로 다음 행부터 데이터라고 가정)
@@ -660,144 +715,95 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     set({
       allData: [],
       allOriginalData: [],
+      allOriginalData: [],
       loadedChunks: new Set(),
       page: 1,
+      fileKey: null,
+      targetColumns: [],
     })
     get().fetchChunk(0, true)
   },
 
-  handleExtractModifiedData: () => {
-    const {
-      allData,
-      allOriginalData,
-      targetColumns,
-      selectedHeaderRows,
-      selectedSampleRows,
-      selectedEtcRows,
-      headerBaseRow,
-      sampleBaseRow,
-      etcBaseRow,
-      recordHeight,
-      mappingResult,
-      fileInfo,
-    } = get()
+  setValidationErrors: (errors) => set({ validationErrors: errors }),
 
-    if (allData.length === 0) return
+  handleValidateExcelData: async () => {
+    const { fileKey, targetColumns, startColIndex, sampleBaseRow, startRowIndex, fileInfo, headerBaseRow } = get()
 
-    // 1. 수정된 데이터 추출
-    const changes = allData
-      .map((currentRow: any, index: number) => {
-        const originalRow = allOriginalData[index]
-        if (!originalRow) return null
-
-        const currentStr = JSON.stringify(currentRow)
-        const originalStr = JSON.stringify(originalRow)
-
-        if (currentStr !== originalStr) {
-          return {
-            rowIndex: currentRow.rowIndex ?? index,
-            original: originalRow,
-            modified: currentRow,
-          }
-        }
-        return null
-      })
-      .filter((item: any) => item !== null)
-
-    // 2. 템플릿 데이터 생성
-    const headerRowIndices = Array.from(selectedHeaderRows).sort((a, b) => a - b)
-    const headerEndRow =
-      headerRowIndices.length > 0 ? headerRowIndices[headerRowIndices.length - 1] : headerBaseRow
-
-    const sampleRowIndices = Array.from(selectedSampleRows).sort((a, b) => a - b)
-    const dataEndRow =
-      sampleRowIndices.length > 0 ? sampleRowIndices[sampleRowIndices.length - 1] : sampleBaseRow
-
-    const etcRowIndices = Array.from(selectedEtcRows).sort((a, b) => a - b)
-    const etcEndRow =
-      etcRowIndices.length > 0 ? etcRowIndices[etcRowIndices.length - 1] : etcBaseRow
-
-    // 3. 실제 입력할 데이터 배열 생성 (데이터 영역의 모든 레코드 대상)
-    // recordHeight가 2라면, 2행이 하나의 데이터 세트임
-    const mappedData: any[] = []
-    for (let i = sampleBaseRow; i < allData.length; i += recordHeight || 1) {
-      const recordRows = allData.slice(i, i + (recordHeight || 1))
-
-      const recordData = targetColumns
-        .filter(
-          (col) => col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined,
-        )
-        .map((col) => {
-          // relativeRowIndex가 지정되어 있다면 해당 행에서 값을 가져오고, 없으면 첫 행에서 가져옴
-          const targetRow = recordRows[recordHeight === 1 ? 0 : col.relativeRowIndex || 0]
-          const rowValues = targetRow ? rowToValues(targetRow) : []
-          const cellValue = String(rowValues[col.excelColIndex!] || "").trim()
-
-          return {
-            "front-column": col.frontColumn,
-            "back-column": col.name,
-            value: cellValue,
-          }
-        })
-        .filter((item) => item.value !== "") // value가 빈 문자열이면 제외
-
-      if (recordData.length > 0) {
-        mappedData.push(recordData)
-      }
+    if (!fileKey) {
+      console.warn("현재 상태에 fileKey가 없습니다. 업로드 API 응답을 확인해주세요.")
     }
 
-    // 선택된 헤더 행(첫 번째 줄)의 모든 컬럼 값을 가져옵니다.
-    const originalHeaderColumns =
-      headerRowIndices.length > 0
-        ? rowToValues(allData[headerRowIndices[0]]).map((v) => String(v || "").trim())
-        : []
-
-    // 백엔드 요청을 위해 userMapping 형식으로 변환 (백엔드 API 스펙 유지를 위해 복구)
-    const userMapping = targetColumns
-      .filter((col) => col.frontColumn)
+    const columnMappings = targetColumns
+      .filter((col) => col.excelColIndex !== null && col.excelColIndex !== undefined)
       .map((col) => ({
-        "front-column": col.frontColumn,
-        "back-column": col.name, // 시스템 컬럼 이름 매핑
+        "col-index": col.excelColIndex! + startColIndex, // 화면상의 잘린 인덱스에 startColIndex를 더해 원본 엑셀 인덱스 복구
+        "relative-row": col.relativeRowIndex ?? 0,
+        "back-column": col.name,
       }))
 
+    if (columnMappings.length === 0) {
+      alert("매핑된 컬럼 정보가 없습니다.")
+      return
+    }
+
+    // 1. 검증 전 템플릿(매핑 정보) 선 저장
     const templateData = {
-      // targetSysType: mappingResult?.targetSysType || "UNKNOWN",
-      fileName: fileInfo?.name,
+      fileName: fileInfo?.name || "unknown",
       structures: {
-        headerStartRow: headerBaseRow + get().startRowIndex,
-        headerEndRow: headerEndRow + get().startRowIndex,
-        dataStartRow: sampleBaseRow + get().startRowIndex,
-        dataEndRow: dataEndRow + get().startRowIndex,
-        etcStartRow: etcBaseRow + get().startRowIndex,
-        etcEndRow: etcEndRow + get().startRowIndex,
-        startColIndex: get().startColIndex, // 스토어의 시작 오프셋 인덱스 반영
-        startRowIndex: get().startRowIndex, // 스토어의 행 오프셋 인덱스 반영
+        headerStartRow: headerBaseRow + startRowIndex,
+        headerEndRow: headerBaseRow + (get().headerHeight || 1) - 1 + startRowIndex,
+        dataStartRow: sampleBaseRow + startRowIndex,
+        dataEndRow: sampleBaseRow + (get().recordHeight || 1) - 1 + startRowIndex,
       },
-      // userMapping: userMapping,
-      targetColumns: targetColumns, // 통합된 전체 데이터 전송 (이미 슬라이스된 상태의 인덱스가 들어가 있음)
+      targetColumns: targetColumns.map((col) => ({
+        ...col,
+        excelColIndex: col.excelColIndex !== null && col.excelColIndex !== undefined ? col.excelColIndex + startColIndex : null,
+        relativeRowIndex: col.relativeRowIndex ?? 0
+      })),
     }
 
-    console.log("Modified Data:", changes)
-    console.log("Generated Template Data:", templateData)
-    console.log("To db of BackEnd (Actual values):", mappedData)
-
-    if (changes.length > 0 || userMapping.length > 0 || mappedData.length > 0) {
-      axios
-        .post("/api/common/save-excel-data-and-template", {
-          modifiedRows: changes,
-          templateData: templateData,
-          mappedData: mappedData, // 실제 매핑된 데이터 전송
-        })
-        .then(() => {
-          alert("데이터와 매핑 템플릿이 성공적으로 저장되었습니다.")
-        })
-        .catch((err) => {
-          console.error("Save failed", err)
-          alert("저장 중 오류가 발생했습니다.")
-        })
-    } else {
-      alert("수정된 데이터나 매핑 정보가 없습니다.")
+    const savePayload = {
+      fileId: fileKey || "",
+      modifiedRows: [], 
+      mappedData: [],
+      templateData: templateData
     }
+
+    try {
+      await axios.post("/api/common/save-excel-data-and-template", savePayload)
+      console.log("Template saved successfully prior to validation.")
+    } catch (err) {
+      console.error("Save template failed", err)
+      // 템플릿 저장이 실패하더라도 검증은 진행할 수 있도록 에러만 찍고 넘어갑니다.
+    }
+
+    // 2. 검증 진행
+    const validatePayload = {
+      file_key: fileKey || "",
+      data_start_row: sampleBaseRow + startRowIndex,
+      columnMappings: columnMappings,
+    }
+
+    console.log("Validate Excel Payload:", validatePayload)
+
+    axios
+      .post("/api/common/validate-excel", validatePayload)
+      .then((res) => {
+        if (res.data?.data?.success || res.data?.success) {
+          get().setValidationErrors([])
+          alert("매핑 정보 자동 저장 및 검증이 완료되었습니다! (저장 가능)")
+        } else {
+          const errors = res.data?.data?.errors || res.data?.errors || []
+          get().setValidationErrors(errors)
+          console.log("에러 발생 목록:", errors)
+          alert("매핑 정보는 저장되었으나, 유효성 검사에 실패한 항목이 있습니다. 빨간색으로 표시된 셀을 확인해주세요.")
+        }
+      })
+      .catch((err) => {
+        console.error("Validation failed", err)
+        const errMsg = err.response?.data?.message || err.response?.data?.error || err.message;
+        alert(`검증 요청 중 오류가 발생했습니다 (400)\n상세: ${errMsg}\n\n*콘솔(Console)의 'Validate Excel Payload'를 확인해 file_key가 정상인지 체크해주세요!`)
+      })
   },
 
   handleRowClick: (rowIndex: number) => {
