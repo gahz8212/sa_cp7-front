@@ -1,5 +1,5 @@
 "use client"
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Button, Input, Badge, Checkbox, Label } from "@cp7/ui"
 import { useExcelStore, rowToValues } from "../../../common/store/useExcelStore"
 import {
@@ -190,6 +190,16 @@ export function DataGrid() {
 
   const pageSize = 20
 
+  useEffect(() => {
+    if (validationErrors && validationErrors.length > 0) {
+      console.log("=== [Validation Errors Received] ===")
+      validationErrors.forEach((err: any, idx: number) => {
+        console.log(`Error ${idx}: rowIndex=${err.rowIndex}, columnCode=${err.columnCode}, errorMessage=${err.errorMessage}, invalidValue=${err.invalidValue}`);
+      });
+      console.log("====================================")
+    }
+  }, [validationErrors])
+
   const columnCount = useMemo(() => {
     if (allData.length > 0) {
       return rowToValues(allData[0]).length
@@ -243,47 +253,8 @@ export function DataGrid() {
     if (lastContentRowIndex === -1) return indices
 
     const currentRecordHeight = recordHeight || 1
-
-    // 검사 범위 결정: 마지막 콘텐츠 행이 속한 레코드 세트의 끝까지 검사
-    const totalCheckRows =
-      Math.ceil((lastContentRowIndex - sampleBaseRow + 1) / currentRecordHeight) *
-      currentRecordHeight +
-      sampleBaseRow
-
-    for (
-      let i = sampleBaseRow;
-      i < totalCheckRows;
-      i += currentRecordHeight
-    ) {
-      const recordRows = allData.slice(i, i + currentRecordHeight)
-      let recordHasError = false
-
-      for (const col of targetColumns) {
-        if (col.frontColumn && col.excelColIndex !== null && col.excelColIndex !== undefined) {
-          const relativeRow = currentRecordHeight === 1 ? 0 : col.relativeRowIndex || 0
-          const targetRow = recordRows[relativeRow]
-          const rowValues = targetRow ? rowToValues(targetRow) : Array(columnCount).fill("")
-          const cellValue = String(rowValues[col.excelColIndex] || "").trim()
-
-          // 1. 필수값 검증 (매핑된 컬럼 기준)
-          if (col.required && cellValue === "") {
-            recordHasError = true
-            break
-          }
-          // (프론트엔드 성능을 위해 데이터 타입 검증은 백엔드에 위임하고 여기서는 필수값만 체크합니다)
-        }
-      }
-
-      if (recordHasError) {
-        for (let j = 0; j < currentRecordHeight; j++) {
-          indices.add(i + j)
-        }
-      }
-    }
-
-    // 백엔드에서 반환된 에러(validationErrors) 행도 추가
     if (validationErrors && validationErrors.length > 0) {
-      validationErrors.forEach((err) => {
+      validationErrors.forEach((err: any) => {
         const localIdx = err.rowIndex - startRowIndex
         if (localIdx >= sampleBaseRow) {
           const recordStartIdx =
@@ -310,6 +281,11 @@ export function DataGrid() {
     validationErrors,
     startRowIndex,
   ])
+
+  // 오류 데이터 필터 변경 시 페이지를 1로 초기화 (빈 화면 방지)
+  useEffect(() => {
+    useExcelStore.setState({ page: 1 })
+  }, [showErrorsOnly])
 
   const viewableRows = useMemo(() => {
     return allData.map((row, index) => ({ row, index })).filter(({ index }) => {
@@ -615,8 +591,10 @@ export function DataGrid() {
             <tbody>
               {paginatedData.map((item: any, localIndex: number) => {
                 const { row, index: originalRowIndex } = item
-                // 빈 행(padding)인 경우를 위해 가상의 rowIndex 계산 (원본 데이터 길이 너머의 고유 인덱스 부여)
-                const rowIndex = originalRowIndex !== -1 ? originalRowIndex : allData.length + localIndex
+                // 현재 페이지의 실제 데이터 개수 (index가 -1이 아닌 것들의 수)
+                const currentDataLength = paginatedData.length - paginatedData.filter((i: any) => i.index === -1).length
+                // 빈 행(padding)인 경우 원본 데이터 길이(allData.length)에 이어서 순차적인 번호 부여
+                const rowIndex = originalRowIndex !== -1 ? originalRowIndex : allData.length + (localIndex - currentDataLength)
                 
                 const isEmptyRow = row === null
                 const isHeader = selectedHeaderRows.has(rowIndex)
@@ -659,15 +637,13 @@ export function DataGrid() {
 
                       const absoluteRowIndex = row?.rowIndex ?? (rowIndex + startRowIndex)
                       const backendError = mappedCol
-                        ? (validationErrors || []).find(err => err.rowIndex === absoluteRowIndex && err.columnCode === mappedCol.name)
+                        ? (validationErrors || []).find((err: any) => 
+                            err.rowIndex === absoluteRowIndex && 
+                            (err.columnCode === mappedCol.name || err.columnCode === mappedCol.frontColumn)
+                          )
                         : null
 
-                      const isInvalid =
-                        (rowIndex >= sampleBaseRow && // 데이터 샘플 영역 첫 행부터 검증 시작
-                          rowIndex <= lastContentRowIndex && // 실제 값이 있는 마지막 행까지만 검사
-                          mappedCol && // 매핑된 칸만 검증
-                          (mappedCol.required && String(cell || "").trim() === "")) || // 필수 값 누락 체크만 수행
-                        !!backendError // 백엔드 검증 에러
+                      const isInvalid = !!backendError // 백엔드 검증 에러
 
                       const isCellWhite = selectedHeaderCells.has(`${rowIndex}-${colIndex}`)
                       const isHeaderRowSelected = selectedHeaderRows.has(rowIndex)
@@ -712,7 +688,7 @@ export function DataGrid() {
                             }
                           }}
                           className={`border-2 text-sm text-center border-gray-800 whitespace-nowrap w-12 transition-colors
-                            ${isInvalid ? "border-red-500 bg-red-100" : ""} 
+                            ${isInvalid ? "border-amber-500 bg-amber-100" : ""} 
                             ${isCellWhite ? "bg-white" : isHeaderRowSelected ? "bg-yellow-200" : ""}
                             ${useExcelStore.getState().selectedSystemColumn && isHeaderRowSelected ? "cursor-crosshair hover:bg-blue-200" : mode === "HEADER" && isHeaderRowSelected ? "cursor-pointer hover:bg-yellow-300" : ""}
                           `}
