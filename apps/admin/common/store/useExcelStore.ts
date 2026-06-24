@@ -8,7 +8,15 @@ export type Signature = CellType[]
 
 export const rowToValues = (row: any) => {
   if (row === null || row === undefined) return []
-  return (Object.values(row).find((v) => Array.isArray(v)) as any[]) || Object.values(row)
+  
+  // 배열이 직접 들어있는 경우
+  const arrayValue = Object.values(row).find((v) => Array.isArray(v)) as any[]
+  if (arrayValue) return arrayValue
+
+  // rowIndex, _originalRowIndex 등의 내부 메타데이터 필드를 제외하고 순수 데이터 값만 추출
+  return Object.keys(row)
+    .filter((k) => k !== 'rowIndex' && k !== '_originalRowIndex')
+    .map((k) => row[k])
 }
 
 export const getCellType = (val: string): CellType => {
@@ -103,10 +111,9 @@ export const getActiveRowBounds = (rawRows: any[]): { top: number; bottom: numbe
   return { top, bottom }
 }
 
-// 사용자의 기괴한 서식 행을 제거하기 위한 행 필터링 헬퍼 함수
-// 1. 전부 빈칸인 행은 삭제
-// 2. 전체 열의 50% 이상이 빈칸이고, 연속된 빈칸이 5칸 이상인지 검사
-export const filterRows = (rawRows: any[]): any[] => {
+// 행 데이터 필터링 헬퍼 함수
+// 1. 전부 빈칸인 행만 삭제 (기존 우측 편향 노이즈 필터는 2단 헤더 오작동 및 인덱스 꼬임 유발로 제거)
+export const filterRows = (rawRows: any[], absoluteDataStartRow: number = -1): any[] => {
   return rawRows.filter((row) => {
     const rowValues = rowToValues(row)
     const totalCols = rowValues.length
@@ -117,41 +124,45 @@ export const filterRows = (rawRows: any[]): any[] => {
     )
     if (isAllEmpty) return false
 
-    // 2. 전체 열의 50% 이상이 빈칸이고, 데이터가 오른쪽에 치우쳐있고, 연속된 빈칸이 3칸 이상인지 검사
-    let emptyCount = 0
-    let firstNonEmptyIdx = -1
-    rowValues.forEach((val, idx) => {
-      const isCellEmpty = val === undefined || val === null || String(val).trim() === ""
-      if (isCellEmpty) {
-        emptyCount++
-      } else {
-        if (firstNonEmptyIdx === -1) {
-          firstNonEmptyIdx = idx
+    // 2. 데이터 영역(rowIndex >= absoluteDataStartRow)에 대해서만 우측 편향 노이즈 필터링 적용
+    // 헤더를 찾는 프로세스(헤더 영역)에서는 이 노이즈 삭제가 동작하지 않도록 방어합니다.
+    const originalRowIndex = row._originalRowIndex !== undefined ? row._originalRowIndex : row.rowIndex;
+    if (absoluteDataStartRow !== -1 && originalRowIndex >= absoluteDataStartRow) {
+      let emptyCount = 0
+      let firstNonEmptyIdx = -1
+      rowValues.forEach((val, idx) => {
+        const isCellEmpty = val === undefined || val === null || String(val).trim() === ""
+        if (isCellEmpty) {
+          emptyCount++
+        } else {
+          if (firstNonEmptyIdx === -1) {
+            firstNonEmptyIdx = idx
+          }
+        }
+      })
+
+      const is50PercentOrMoreEmpty = emptyCount >= totalCols * 0.5
+      const isRightLeaning = firstNonEmptyIdx >= totalCols * 0.5
+
+      let has3ConsecutiveEmpty = false
+      let consecutiveEmptyCount = 0
+      for (let i = 0; i < totalCols; i++) {
+        const val = rowValues[i]
+        const isEmpty = val === undefined || val === null || String(val).trim() === ""
+        if (isEmpty) {
+          consecutiveEmptyCount++
+          if (consecutiveEmptyCount >= 3) {
+            has3ConsecutiveEmpty = true
+            break
+          }
+        } else {
+          consecutiveEmptyCount = 0
         }
       }
-    })
 
-    const is50PercentOrMoreEmpty = emptyCount >= totalCols * 0.5
-    const isRightLeaning = firstNonEmptyIdx >= totalCols * 0.5
-
-    let has3ConsecutiveEmpty = false
-    let consecutiveEmptyCount = 0
-    for (let i = 0; i < totalCols; i++) {
-      const val = rowValues[i]
-      const isEmpty = val === undefined || val === null || String(val).trim() === ""
-      if (isEmpty) {
-        consecutiveEmptyCount++
-        if (consecutiveEmptyCount >= 3) {
-          has3ConsecutiveEmpty = true
-          break
-        }
-      } else {
-        consecutiveEmptyCount = 0
+      if (is50PercentOrMoreEmpty && isRightLeaning && has3ConsecutiveEmpty) {
+        return false // 데이터 영역 내의 결제선/노이즈 삭제 대상 행
       }
-    }
-
-    if (is50PercentOrMoreEmpty && isRightLeaning && has3ConsecutiveEmpty) {
-      return false // 삭제 대상 행
     }
 
     return true
@@ -193,7 +204,7 @@ const detectDataArea = (rows: any[]): {
   //     10행 안에 string-only 헤더가 없으면 → 합성 헤더(컬럼1, 컬럼2 ...) 자동 생성
   //
   const SCAN_LIMIT        = Math.min(rows.length, 10)
-  const MATCH_RATIO       = 0.8   // 두 행의 타입 패턴이 이 비율 이상 일치하면 동일 패턴으로 판별
+  const MATCH_RATIO       = 0.8   // 패턴 매칭 임계치 (구조와 타입이 80% 이상 일치하면 같은 패턴으로 간주)
   const MAX_RECORD_HEIGHT = 4     // 탐색할 최대 레코드 높이
 
   // 전체 열 수: 처음 몇 개 행 중 가장 긴 것 기준 (파싱 방식에 따른 길이 차이 대응)
@@ -218,9 +229,9 @@ const detectDataArea = (rows: any[]): {
     const firstNonEmpty = nonEmptyIndices[0]
     const nonEmptyCount = nonEmptyIndices.length
 
-    // 결제선: 첫 유효 셀이 전체 열의 50% 이후 위치 (우측 편향)
-    //   ex) 10열 기준 → 첫 유효 셀 인덱스 >= 5
-    if (firstNonEmpty >= totalCols * 0.5) return true
+    // 결제선: 첫 유효 셀이 전체 열의 일정 지점 이후에 위치 (우측 편향)
+    //   ex) 4열 기준 → firstNonEmpty >= 1 이면 우측 편향으로 인정 (빈칸 1개 + 문자 3개)
+    if (firstNonEmpty > 0 && firstNonEmpty >= Math.floor(totalCols / 3)) return true
 
     // 병합 제목: 유효 셀이 극히 적고(≤25% 또는 최대 2개) 좌측에 편중
     //   ex) ["월별현황","","","","","","",""] → nonEmptyCount=1, firstNonEmpty=0
@@ -295,6 +306,7 @@ const detectDataArea = (rows: any[]): {
     const colCount = Math.max(1, rowToValues(rows[0] ?? {}).length)
     console.log("[detectDataArea] Fallback triggered: no valid rows found in SCAN_LIMIT.")
     return {
+      headerStartRow: 0,
       dataStartRow: 0,
       recordHeight: 1,
       syntheticHeaderNames: Array.from({ length: colCount }, (_, i) => `컬럼${i + 1}`),
@@ -302,7 +314,6 @@ const detectDataArea = (rows: any[]): {
   }
 
   // STEP 2. 데이터 시작 행(dataStartRow) 및 레코드 높이(recordHeight) 탐색
-  // 첫 행(scanStart) 대신 두 번째 행(scanStart + 1)부터 시작하여 데이터 패턴 매칭을 진행합니다.
   let dataStartRow = scanStart + 1
   let recordHeight = 1
   let foundDataPattern = false
@@ -314,9 +325,8 @@ const detectDataArea = (rows: any[]): {
   console.log("hasNonStringOnlyRow inside limit:", hasNonStringOnlyRow)
 
   for (let i = startScanIdx; i < SCAN_LIMIT - 1; i++) {
-    // 가드: 10행 내에 숫자 등이 포함된 진짜 데이터 행이 존재하는 문서라면,
-    // 문자열(string)로만 가득 찬 행(예: 2단 헤더의 두 번째 줄)은 데이터의 첫 시작이 될 수 없으므로 건너뜁니다.
-    if (hasNonStringOnlyRow && isStringOnlyRow(sigs[i])) {
+    // 가드: 최상단(인덱스 0, 1, 2)에 위치한 문자열 전용 행은 다단 헤더일 확률이 높으므로 건너뜀
+    if (i < 3 && hasNonStringOnlyRow && isStringOnlyRow(sigs[i])) {
       console.log(`Row ${i} is string-only and hasNonStringOnlyRow is true, skipping from data start candidate.`)
       continue
     }
@@ -372,13 +382,13 @@ const detectDataArea = (rows: any[]): {
     const syntheticHeaderNames = Array.from({ length: colCount }, (_, i) => `컬럼${i + 1}`)
     console.log("[detectDataArea] dataStartRow equals scanStart. Synthetic header generated.")
     console.log("=== [detectDataArea] Scan End ===")
-    return { dataStartRow, recordHeight, syntheticHeaderNames }
+    return { headerStartRow: scanStart, dataStartRow, recordHeight, syntheticHeaderNames }
   }
 
   // 정상적으로 실제 헤더가 감지된 경우 (scanStart부터 dataStartRow - 1까지가 헤더 영역)
   console.log(`[detectDataArea] Final result -> dataStartRow: ${dataStartRow}, recordHeight: ${recordHeight}`)
   console.log("=== [detectDataArea] Scan End ===")
-  return { dataStartRow, recordHeight, syntheticHeaderNames: null }
+  return { headerStartRow: scanStart, dataStartRow, recordHeight, syntheticHeaderNames: null }
 }
 
 interface ValidationError {
@@ -735,8 +745,18 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
           _originalRowIndex: row.rowIndex !== undefined && row.rowIndex !== null ? row.rowIndex : idx
         }))
 
-        // 사용자의 필터링 규칙 적용: 전부 빈 행이거나, 데이터 간 5칸 이상 빈칸이 연속된 행 삭제
-        const filteredRows = filterRows(rawRowsWithIndex)
+        // 우선 데이터 시작 행을 파악하여 헤더 영역과 데이터 영역을 구분
+        let absoluteDataStartRow = -1;
+        if (isInitial) {
+           // 빈 행만 임시로 제거한 배열로 헤더 스캔 (검출 정확도 향상)
+           const autoDetected = detectDataArea(rawRowsWithIndex);
+           absoluteDataStartRow = rawRowsWithIndex[autoDetected.dataStartRow]?._originalRowIndex ?? -1;
+        } else {
+           absoluteDataStartRow = get().sampleBaseRow;
+        }
+
+        // 사용자의 필터링 규칙 적용: 헤더 영역이면 완전 빈 행만 삭제, 데이터 영역이면 노이즈 삭제(우측 편향)까지 적용
+        const filteredRows = filterRows(rawRowsWithIndex, absoluteDataStartRow)
 
         // 유효한 열 영역(Bounds) 감지
         const { left, right } = getActiveColumnBounds(filteredRows)
@@ -832,7 +852,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
                 sEndRow = sBaseRow + (autoDetected.recordHeight - 1)
                 
                 hEndRow = Math.max(0, sBaseRow - 1)
-                hBaseRow = Math.min(hBaseRow, hEndRow)
+                hBaseRow = autoDetected.headerStartRow
               }
 
               const eBaseRow = findIndexByRowIndex(savedHeaderStructure.etcStartRow, 0)
@@ -911,15 +931,17 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
               // [저장된 매핑 없음] 노이즈 제거 → 헤더 자동 탐지 → recordHeight 결정
               // 10행 안에 헤더가 없으면 합성 헤더 행을 newRows 앞에 삽입
               // ──────────────────────────────────────────────────────────────
-              const { dataStartRow: rawDataStart, recordHeight: rh, syntheticHeaderNames } = detectDataArea(newRows)
+              const { headerStartRow, dataStartRow: rawDataStart, recordHeight: rh, syntheticHeaderNames } = detectDataArea(newRows)
 
               // 합성 헤더 처리: 헤더가 없는 경우 "컬럼1", "컬럼2"... 행을 데이터 앞에 삽입
               let dataStartRow = rawDataStart
+              let hBaseRow = headerStartRow
               if (syntheticHeaderNames !== null) {
                 const syntheticRow: Record<string, string> = {}
                 syntheticHeaderNames.forEach((name, i) => { syntheticRow[String(i)] = name })
                 newRows = [syntheticRow, ...newRows]
                 dataStartRow = rawDataStart + 1  // 삽입으로 인해 모든 인덱스 +1
+                hBaseRow = 0 // 합성 헤더는 0번부터 시작
                 // allData·allOriginalData에도 합성 헤더 반영
                 set((prev) => ({
                   allData: [syntheticRow, ...prev.allData],
@@ -928,8 +950,7 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
               }
 
               const detectedHeaderRows = new Set<number>()
-              for (let i = 0; i < dataStartRow; i++) detectedHeaderRows.add(i)
-              const hBaseRow = 0
+              for (let i = hBaseRow; i < dataStartRow; i++) detectedHeaderRows.add(i)
               const hHeight = Math.max(detectedHeaderRows.size, 1)
               const sBaseRow = dataStartRow
 

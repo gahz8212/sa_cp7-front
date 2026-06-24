@@ -2,13 +2,18 @@
   "name": "cp7-front",
   "private": true,
   "packageManager": "npm@10.2.4",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint"
   },
   "devDependencies": {
-    "turbo": "^2"
+    "ts-node": "^10.9.2",
+    "turbo": "^2",
+    "typescript": "^6.0.3"
   }
 }
