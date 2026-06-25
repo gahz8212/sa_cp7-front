@@ -37,9 +37,7 @@ export const isStringOnlyRow = (sig: Signature): boolean => {
 
 // ── 2. 개별 행 분류기 (Heuristics) ───────────────────────────────────────
 
-/**
- * 일반 노이즈 행 판별 (완전 빈 행 또는 데이터가 극도로 희소한 행)
- */
+/* [참고용 이전 로직 주석 처리]
 export const isGeneralNoiseRow = (row: any, totalCols: number): boolean => {
   const values = rowToValues(row).map((v) => String(v ?? '').trim());
   const nonEmptyCount = values.filter((v) => v !== '').length;
@@ -52,9 +50,6 @@ export const isGeneralNoiseRow = (row: any, totalCols: number): boolean => {
   return false;
 };
 
-/**
- * 구조 기반 결제선 행 판별 (키워드 비의존성)
- */
 export const isApprovalLineRow = (row: any, idx: number, rows: any[], totalCols: number): boolean => {
   const values = rowToValues(row).map((v) => String(v ?? '').trim());
   const nonEmptyIndices = values
@@ -100,9 +95,6 @@ export const isApprovalLineRow = (row: any, idx: number, rows: any[], totalCols:
   return false;
 };
 
-/**
- * 특정 행의 카테고리를 엄격하게 분류하는 판별기
- */
 export const classifyRow = (row: any, idx: number, rows: any[], totalCols: number): RowCategory => {
   const values = rowToValues(row).map((v) => String(v ?? '').trim());
   const nonEmptyCount = values.filter((v) => v !== '').length;
@@ -127,6 +119,20 @@ export const classifyRow = (row: any, idx: number, rows: any[], totalCols: numbe
     return 'HEADER_CANDIDATE';
   }
 
+  return 'UNKNOWN';
+};
+*/
+
+// 임시 컴파일용 더미 로직 (참고용 로직은 상단 주석에 보존됨)
+export const isGeneralNoiseRow = (row: any, totalCols: number): boolean => {
+  return false;
+};
+
+export const isApprovalLineRow = (row: any, idx: number, rows: any[], totalCols: number): boolean => {
+  return false;
+};
+
+export const classifyRow = (row: any, idx: number, rows: any[], totalCols: number): RowCategory => {
   return 'UNKNOWN';
 };
 
@@ -193,7 +199,8 @@ export const getActiveRowBounds = (rawRows: any[]): { top: number; bottom: numbe
 
 // ── 4. 행 필터링 로직 ───────────────────────────────────────────────────
 
-export const filterRows = (
+/* [참고용 이전 필터링 로직 주석 처리]
+export const filterRowsOriginal = (
   rawRows: any[], 
   absoluteDataStartRow: number = -1, 
   absoluteHeaderStartRow: number = -1
@@ -263,10 +270,71 @@ export const filterRows = (
     return true;
   });
 };
+*/
+
+// 실제 필터링 로직 (헤더 시작점 이전 불필요 영역 삭제 및 데이터 영역 내 빈칸 노이즈 제거)
+export const filterRows = (
+  rawRows: any[], 
+  dataStartRow: number = -1, 
+  headerStartRow: number = -1
+): any[] => {
+  const totalCols = rawRows.length > 0 
+    ? Math.max(1, ...rawRows.slice(0, Math.min(5, rawRows.length)).map((r) => rowToValues(r).length))
+    : 1;
+
+  return rawRows.filter((row, idx) => {
+    const rowValues = rowToValues(row);
+
+    // 1. 완전히 비어있는 행 제거
+    const isAllEmpty = rowValues.every(
+      (val) => val === undefined || val === null || String(val).trim() === ""
+    );
+    if (isAllEmpty) return false;
+
+    // 2. 헤더 시작 위치(headerStartRow) 이전의 모든 행은 무조건 필터링 (물리적 인덱스 idx 기준 불필요 영역 삭제)
+    if (headerStartRow !== -1 && idx < headerStartRow) {
+      return false;
+    }
+
+    // 3. 데이터 영역(idx >= dataStartRow)에 대해서만 노이즈 필터링 적용 (연속된 빈칸 5개 이상 + 50% 빈 셀)
+    if (dataStartRow !== -1 && idx >= dataStartRow) {
+      let emptyCount = 0;
+      rowValues.forEach((val) => {
+        const isCellEmpty = val === undefined || val === null || String(val).trim() === "";
+        if (isCellEmpty) emptyCount++;
+      });
+
+      const is50PercentOrMoreEmpty = emptyCount >= totalCols * 0.5;
+
+      let has5ConsecutiveEmpty = false;
+      let consecutiveEmptyCount = 0;
+      for (let i = 0; i < totalCols; i++) {
+        const val = rowValues[i];
+        const isEmpty = val === undefined || val === null || String(val).trim() === "";
+        if (isEmpty) {
+          consecutiveEmptyCount++;
+          if (consecutiveEmptyCount >= 5) {
+            has5ConsecutiveEmpty = true;
+            break;
+          }
+        } else {
+          consecutiveEmptyCount = 0;
+        }
+      }
+
+      if (is50PercentOrMoreEmpty && has5ConsecutiveEmpty) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+};
 
 // ── 5. 데이터 영역 분석 상태 머신 ──────────────────────────────────────────
 
-export const detectDataArea = (rows: any[]): {
+/* [참고용 이전 분석 로직 주석 처리]
+export const detectDataAreaOriginal = (rows: any[]): {
   headerStartRow: number;
   dataStartRow: number;
   recordHeight: number;
@@ -283,7 +351,6 @@ export const detectDataArea = (rows: any[]): {
 
   const sigs = rows.slice(0, SCAN_LIMIT).map(getSignature);
 
-  // 시그니처 매칭 헬퍼 함수
   const sigMatch = (a: Signature, b: Signature): boolean => {
     const len = Math.max(a.length, b.length);
     if (len === 0) return true;
@@ -343,7 +410,6 @@ export const detectDataArea = (rows: any[]): {
   const hasNonStringOnlyRow = sigs.slice(startScanIdx, SCAN_LIMIT).some((sig) => !isStringOnlyRow(sig));
 
   for (let i = startScanIdx; i < SCAN_LIMIT - 1; i++) {
-    // 다단 헤더 방어: 스캔 상단부에 위치한 문자열 전용 행은 데이터 시작 후보에서 건너뜀
     if (i < 3 && hasNonStringOnlyRow && isStringOnlyRow(sigs[i])) {
       continue;
     }
@@ -354,7 +420,6 @@ export const detectDataArea = (rows: any[]): {
       if (sigMatch(sigs[i], sigs[i + k])) {
         let allMatched = true;
 
-        // 검증 1: 레코드 높이 k > 1 시 내부 오프셋 검증
         for (let offset = 1; offset < k; offset++) {
           if (i + k + offset >= SCAN_LIMIT) break;
           if (!sigMatch(sigs[i + offset], sigs[i + k + offset])) {
@@ -363,7 +428,6 @@ export const detectDataArea = (rows: any[]): {
           }
         }
 
-        // 검증 2: 반복 주기 세트 추가 일치성 검증 (i + 2*k)
         if (allMatched && i + 2 * k < SCAN_LIMIT) {
           for (let offset = 0; offset < k; offset++) {
             if (i + 2 * k + offset >= SCAN_LIMIT) break;
@@ -385,13 +449,11 @@ export const detectDataArea = (rows: any[]): {
     if (foundDataPattern) break;
   }
 
-  // 패턴 미검출 시 폴백 데이터 지정 (헤더 다음 행이 데이터라고 추정)
   if (!foundDataPattern) {
     dataStartRow = Math.min(scanStart + 2, rows.length - 1);
     recordHeight = 1;
   }
 
-  // STEP 3. 데이터 시작 행이 스캔 시작점과 같다면 헤더가 누락된 시트로 판단하고 합성 헤더 제공
   if (dataStartRow === scanStart) {
     const colCount = rowToValues(rows[scanStart]).length;
     return {
@@ -402,14 +464,12 @@ export const detectDataArea = (rows: any[]): {
     };
   }
 
-  // STEP 4. 헤더 시작 행(headerStartRow) 역방향 탐색
   let headerStartRow = dataStartRow - 1;
   while (headerStartRow > 0) {
     const prevRow = rows[headerStartRow - 1];
     const prevValues = rowToValues(prevRow).map((v) => String(v ?? '').trim());
     const nonEmptyCount = prevValues.filter((v) => v !== '').length;
 
-    // 상위 행이 완전히 비어있거나, 결제선이거나, 문자열 전용이 아니거나, 유효 셀이 1개 이하(제목 등)이면 탐색 중단
     if (
       nonEmptyCount <= 1 ||
       isApprovalLineRow(prevRow, headerStartRow - 1, rows, totalCols) ||
@@ -420,15 +480,12 @@ export const detectDataArea = (rows: any[]): {
     headerStartRow--;
   }
 
-  // STEP 5. 고밀도 헤더 오버라이드 (Override)
-  // SCAN_LIMIT 내에 밀집도가 높은(>=70%) 첫 번째 헤더 후보 행(firstHighDensityRowIdx)이 존재한다면,
-  // 기존에 검출된 headerStartRow가 이 고밀도 행보다 위에 있을 때 덮어씌웁니다.
   let firstHighDensityRowIdx = -1;
   for (let i = 0; i < SCAN_LIMIT; i++) {
     const category = classifyRow(rows[i], i, rows, totalCols);
     if (category === 'HEADER_CANDIDATE') {
       firstHighDensityRowIdx = i;
-      break; // 첫 번째로 마주한 고밀도 표 헤더 후보에서 탐색 종료
+      break;
     }
   }
 
@@ -462,3 +519,205 @@ export const detectDataArea = (rows: any[]): {
     syntheticHeaderNames: null,
   };
 };
+*/
+
+// 실제 데이터 영역 분석 상태 머신 (상위 10행 중 최고 밀집도 행을 헤더 앵커로 잡고 분석 시작)
+export const detectDataArea = (rows: any[]): {
+  headerStartRow: number;
+  dataStartRow: number;
+  recordHeight: number;
+  syntheticHeaderNames: string[] | null;
+} => {
+  if (rows.length === 0) {
+    return {
+      headerStartRow: 0,
+      dataStartRow: 0,
+      recordHeight: 1,
+      syntheticHeaderNames: [],
+    };
+  }
+
+  const SCAN_LIMIT = Math.min(rows.length, 10);
+  const totalCols = Math.max(
+    1,
+    ...rows.slice(0, Math.min(5, rows.length)).map((r) => rowToValues(r).length)
+  );
+
+  const sigs = rows.slice(0, SCAN_LIMIT).map(getSignature);
+
+  // 1. 상위 10행의 밀집도를 계산하여 헤더 앵커(bestHeaderIdx) 탐색
+  let maxDensity = -1;
+  let bestHeaderIdx = 0;
+  const HIGH_DENSITY_THRESHOLD = 0.7; // 헤더로 인정할 최소 밀집도 임계치 (70%)
+
+  for (let i = 0; i < SCAN_LIMIT; i++) {
+    const row = rows[i];
+    const values = rowToValues(row).map((v) => String(v ?? '').trim());
+    const nonEmptyCount = values.filter((v) => v !== '').length;
+    const density = nonEmptyCount / totalCols;
+
+    const sig = sigs[i];
+    const hasString = sig.some((t) => t === 'string');
+
+    // 밀집도가 현재까지의 최댓값보다 큰 경우 갱신
+    if (density > maxDensity) {
+      // (1) 아직 고밀도 헤더 임계치에 도달하지 못했거나
+      // (2) 더 큰 밀집도를 가진 행이며 문자가 포함된 경우(헤더다운 행)에만 앵커를 데이터 행에 뺏기지 않도록 갱신
+      if (maxDensity < HIGH_DENSITY_THRESHOLD || hasString) {
+        maxDensity = density;
+        bestHeaderIdx = i;
+      }
+    }
+  }
+
+  // 감지된 임계치가 극도로 낮다면 기본값 0 사용
+  if (maxDensity <= 0.1) {
+    bestHeaderIdx = 0;
+  }
+
+  // 2. 데이터 시작 행(dataStartRow) 및 레코드 높이(recordHeight) 패턴 탐색
+  // 패턴 검사 시작 위치(scanStart)는 찾은 최대 밀집도 행(bestHeaderIdx)
+  const scanStart = bestHeaderIdx;
+
+  let dataStartRow = scanStart + 1;
+  let recordHeight = 1;
+  let foundDataPattern = false;
+
+  const MAX_RECORD_HEIGHT = 4;
+  const MATCH_RATIO = 0.8;
+
+  const sigMatch = (a: Signature, b: Signature): boolean => {
+    const len = Math.max(a.length, b.length);
+    if (len === 0) return true;
+
+    let structureMatched = 0;
+    let typeMatched = 0;
+    let compared = 0;
+
+    for (let i = 0; i < len; i++) {
+      const ta = a[i] ?? 'empty';
+      const tb = b[i] ?? 'empty';
+
+      if (ta === 'empty' && tb === 'empty') continue;
+
+      compared++;
+      const hasValueA = ta !== 'empty';
+      const hasValueB = tb !== 'empty';
+
+      if (hasValueA === hasValueB) structureMatched++;
+      if (hasValueA && hasValueB && ta === tb) typeMatched++;
+    }
+
+    if (compared === 0) return true;
+    const structureRatio = structureMatched / compared;
+    const typeRatio = typeMatched / compared;
+    return (structureRatio + typeRatio) / 2 >= MATCH_RATIO;
+  };
+
+  const startScanIdx = Math.min(scanStart + 1, rows.length - 1);
+  const scanSigs = rows.map(getSignature);
+
+  for (let i = startScanIdx; i < Math.min(rows.length - 1, startScanIdx + 10); i++) {
+    const sigI = scanSigs[i];
+    if (!sigI) continue;
+
+    for (let k = 1; k <= MAX_RECORD_HEIGHT; k++) {
+      if (i + k >= rows.length) break;
+
+      const sigIK = scanSigs[i + k];
+      if (sigIK && sigMatch(sigI, sigIK)) {
+        let allMatched = true;
+
+        for (let offset = 1; offset < k; offset++) {
+          if (i + k + offset >= rows.length) break;
+          const sigIOffset = scanSigs[i + offset];
+          const sigIKOffset = scanSigs[i + k + offset];
+          if (!sigIOffset || !sigIKOffset || !sigMatch(sigIOffset, sigIKOffset)) {
+            allMatched = false;
+            break;
+          }
+        }
+
+        if (allMatched && i + 2 * k < rows.length) {
+          for (let offset = 0; offset < k; offset++) {
+            if (i + 2 * k + offset >= rows.length) break;
+            const sigIOffset = scanSigs[i + offset];
+            const sigI2KOffset = scanSigs[i + 2 * k + offset];
+            if (!sigIOffset || !sigI2KOffset || !sigMatch(sigIOffset, sigI2KOffset)) {
+              allMatched = false;
+              break;
+            }
+          }
+        }
+
+        if (allMatched) {
+          dataStartRow = i;
+          recordHeight = k;
+          foundDataPattern = true;
+          break;
+        }
+      }
+    }
+    if (foundDataPattern) break;
+  }
+
+  if (!foundDataPattern) {
+    dataStartRow = Math.min(scanStart + 1, rows.length - 1);
+    recordHeight = 1;
+  }
+
+  // 3. 헤더 시작 위치(headerStartRow) 위로 탐색
+  // dataStartRow 바로 윗행부터 위로 역방향 스캔하되, 0번 행까지 탐색 범위를 넓힙니다.
+  // 단, 결제선/제목/빈 행 등 노이즈 조건을 만나면 중단합니다.
+  let headerStartRow = dataStartRow - 1;
+  while (headerStartRow > 0) {
+    const prevRow = rows[headerStartRow - 1];
+    const prevValues = rowToValues(prevRow).map((v) => String(v ?? '').trim());
+    const nonEmptyCount = prevValues.filter((v) => v !== '').length;
+
+    // 결제선 직급/사인 키워드 검사
+    const approvalKeywords = [
+      '담당', '검토', '승인', '결재', '합의', '결제', 
+      '팀장', '부장', '과장', '대리', '대표', '소장', 
+      '임원', '사장', '회장', '직인', '서명'
+    ];
+    const hasApprovalKeyword = prevValues.some((val) => 
+      approvalKeywords.some((kw) => val.includes(kw))
+    );
+
+    const midPoint = Math.floor(totalCols / 2);
+    const leftHalfCount = prevValues.slice(0, midPoint).filter((v) => v !== '').length;
+    const rightHalfCount = prevValues.slice(midPoint).filter((v) => v !== '').length;
+
+    // 우측 편향 결제선 판별 (좌측은 비어있고 우측에 집중되었으며 결제 직급 키워드가 있는 경우)
+    const isApprovalLine = leftHalfCount === 0 && rightHalfCount >= 1 && hasApprovalKeyword;
+
+    const sig = scanSigs[headerStartRow - 1];
+    
+    // 중단 조건:
+    // 1) 완전히 비어있거나 값이 1개 이하인 행 (제목 등 노이즈)
+    // 2) 문자 전용 행이 아닌 경우 (숫자가 포함된 데이터 행 등)
+    // 3) 결제 키워드가 섞인 우측 편향 결제선 노이즈인 경우
+    if (
+      nonEmptyCount <= 1 ||
+      (sig && !isStringOnlyRow(sig)) ||
+      isApprovalLine
+    ) {
+      break;
+    }
+    headerStartRow--;
+  }
+
+  // 앵커 행(bestHeaderIdx)은 핵심 표 헤더이므로, headerStartRow가 이 앵커보다 밑으로(아래로) 지정되는 것을 방지합니다.
+  if (headerStartRow > bestHeaderIdx) {
+    headerStartRow = bestHeaderIdx;
+  }
+
+  return {
+    headerStartRow,
+    dataStartRow,
+    recordHeight,
+    syntheticHeaderNames: null,
+  };
+};
+

@@ -381,21 +381,30 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
           _originalRowIndex: row.rowIndex !== undefined && row.rowIndex !== null ? row.rowIndex : idx
         }))
 
-        // 우선 데이터 시작 행을 파악하여 헤더 영역과 데이터 영역을 구분
-        let absoluteDataStartRow = -1;
-        let absoluteHeaderStartRow = -1;
+        // 우선 데이터 시작 행을 파악하여 헤더 영역과 데이터 영역을 구분 (물리적 배열 인덱스 기준)
+        let headerStartRowIndex = -1;
+        let dataStartRowIndex = -1;
         if (isInitial) {
-           // 빈 행만 임시로 제거한 배열로 헤더 스캔 (검출 정확도 향상)
            const autoDetected = detectDataArea(rawRowsWithIndex);
-           absoluteDataStartRow = rawRowsWithIndex[autoDetected.dataStartRow]?._originalRowIndex ?? -1;
-           absoluteHeaderStartRow = rawRowsWithIndex[autoDetected.headerStartRow]?._originalRowIndex ?? -1;
+           headerStartRowIndex = autoDetected.headerStartRow;
+           dataStartRowIndex = autoDetected.dataStartRow;
+
+           console.log("=== [Excel Area Detection Initial Scan] ===");
+           console.log("rawRows count:", rawRowsWithIndex.length);
+           console.log("autoDetected result:", autoDetected);
+           console.log("headerStartRowIndex (Relative index):", headerStartRowIndex);
+           console.log("dataStartRowIndex (Relative index):", dataStartRowIndex);
+           console.log("=========================================");
         } else {
-           absoluteDataStartRow = get().sampleBaseRow;
-           absoluteHeaderStartRow = get().headerBaseRow;
+           // 최초 청크가 아닌 경우(페이징 등으로 추가 데이터 로드 시) 이미 상위 노이즈가 제거된 상태이므로
+           // 안전하게 불필요 영역 삭제 대상을 제외(-1)하여 원본 데이터를 보존합니다.
+           headerStartRowIndex = -1;
+           dataStartRowIndex = -1;
         }
 
-        // 사용자의 필터링 규칙 적용: 헤더 영역이면 완전 빈 행만 삭제, 데이터 영역이면 노이즈 삭제(우측 편향)까지 적용
-        const filteredRows = filterRows(rawRowsWithIndex, absoluteDataStartRow, absoluteHeaderStartRow)
+        // 사용자의 필터링 규칙 적용: 물리적 인덱스(0-based) 기준 필터링 수행
+        const filteredRows = filterRows(rawRowsWithIndex, dataStartRowIndex, headerStartRowIndex)
+        console.log(`[Excel Filter] Rows filtered from ${rawRowsWithIndex.length} down to ${filteredRows.length}`);
 
         // 유효한 열 영역(Bounds) 감지
         const { left, right } = getActiveColumnBounds(filteredRows)
@@ -404,6 +413,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         // 유효한 행 영역(Bounds) 감지 및 잘라내기
         const { top, bottom } = getActiveRowBounds(filteredRows)
         set({ startRowIndex: top })
+
+        console.log(`[Excel Bounds] Col bounds: left=${left}, right=${right} | Row bounds: top=${top}, bottom=${bottom}`);
 
         // 유효 행 영역만큼 데이터 슬라이싱
         const slicedRows = filteredRows.slice(top, bottom + 1)
