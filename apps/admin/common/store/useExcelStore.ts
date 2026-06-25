@@ -12,7 +12,6 @@ import {
   getActiveColumnBounds,
   getActiveRowBounds,
   filterRows,
-  detectDataArea,
 } from "./excelUtils"
 
 export type { CellType, Signature }
@@ -24,7 +23,6 @@ export {
   getActiveColumnBounds,
   getActiveRowBounds,
   filterRows,
-  detectDataArea,
 }
 
 interface ValidationError {
@@ -277,32 +275,21 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     // 선택된 행들을 엑셀 원본 데이터에서 영구 제외(삭제)
     const newAllData = allData.filter((_, idx) => !toDelete.has(idx))
 
-    if (mode === "HEADER") {
-      set({
-        allData: newAllData,
-        totalCount: newAllData.length,
-        selectedHeaderRows: new Set(),
-        selectedHeaderCells: new Set(),
-        headerBaseRow: 0,
-        headerHeight: 0,
-      })
-    } else if (mode === "DATA") {
-      set({
-        allData: newAllData,
-        totalCount: newAllData.length,
-        selectedSampleRows: new Set(),
-        sampleBaseRow: 0,
-        recordHeight: 0,
-      })
-    } else if (mode === "ETC") {
-      set({
-        allData: newAllData,
-        totalCount: newAllData.length,
-        selectedEtcRows: new Set(),
-        etcBaseRow: 0,
-        etcHeight: 0,
-      })
-    }
+    // 데이터가 삭제되어 행 인덱스가 바뀌었으므로, 헤더, 데이터, 기타 영역 등 모든 선택 정보를 일괄 초기화
+    set({
+      allData: newAllData,
+      totalCount: newAllData.length,
+      selectedHeaderRows: new Set(),
+      selectedHeaderCells: new Set(),
+      headerBaseRow: 0,
+      headerHeight: 0,
+      selectedSampleRows: new Set(),
+      sampleBaseRow: 0,
+      recordHeight: 0,
+      selectedEtcRows: new Set(),
+      etcBaseRow: 0,
+      etcHeight: 0,
+    })
   },
 
   resetAll: () => {
@@ -494,9 +481,6 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
               console.log("=== [fetchChunk] Saved Template Structure Loaded ===")
               console.log("savedHeaderStructure:", savedHeaderStructure)
               
-              // 신규 자동 감지 결과를 미리 계산
-              const autoDetected = detectDataArea(newRows)
-
               // 백엔드에서 저장된 headerStructure를 함께 보내준 경우 (저장된 정보 우선 사용)
               // top (행 슬라이스 오프셋)을 차감하여 슬라이스된 newRows 기준의 상대 좌표로 변환
               // rowIndex가 일치하는 행을 newRows 내에서 찾아 상대 인덱스로 변환 (중간 행 삭제 대응)
@@ -510,23 +494,6 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
               let hEndRow = findIndexByRowIndex(savedHeaderStructure.headerEndRow, hBaseRow)
               let sBaseRow = findIndexByRowIndex(savedHeaderStructure.dataStartRow, hEndRow + 1)
               let sEndRow = findIndexByRowIndex(savedHeaderStructure.dataEndRow, sBaseRow)
-
-              // 복원 데이터 가드: 저장된 템플릿의 데이터 시작 행이 문자열 전용이거나, 자동 감지된 dataStartRow보다 앞에 있는 경우
-              // 구조 오염이나 오탐으로 간주하여 자동 감지 결과(autoDetected)로 보정
-              const checkRowIsStringOnly = (rowIdx: number): boolean => {
-                if (rowIdx < 0 || rowIdx >= newRows.length) return false
-                const sig = getSignature(newRows[rowIdx])
-                return isStringOnlyRow(sig)
-              }
-
-              if (sBaseRow < autoDetected.dataStartRow || checkRowIsStringOnly(sBaseRow)) {
-                console.log(`[fetchChunk] Saved dataStartRow (relative idx ${sBaseRow}) is invalid (either string-only or before autoDetected ${autoDetected.dataStartRow}). Overriding with autoDetected dataStartRow: ${autoDetected.dataStartRow}`)
-                sBaseRow = autoDetected.dataStartRow
-                sEndRow = sBaseRow + (autoDetected.recordHeight - 1)
-                
-                hEndRow = Math.max(0, sBaseRow - 1)
-                hBaseRow = autoDetected.headerStartRow
-              }
 
               const eBaseRow = findIndexByRowIndex(savedHeaderStructure.etcStartRow, 0)
               const eEndRow = findIndexByRowIndex(savedHeaderStructure.etcEndRow, hBaseRow > 0 ? hBaseRow - 1 : -1)
@@ -791,103 +758,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
         const nextEtc = new Set(prev.selectedEtcRows)
         nextEtc.delete(rowIndex)
 
-        // 자동 데이터 패턴 지정 Heuristic:
-        // 헤더 지정이 완료되면 헤더 바로 다음 행부터 비어있지 않은 행들을 수집하여 패턴(1단 vs 2단) 분석
+        // 수동 지정 모드: 사용자가 명시적으로 영역을 지정할 수 있도록, 자동 패턴 지정을 제거합니다.
         let newRecordHeight = prev.recordHeight
-        if (sortedHeaders.length > 0) {
-          const lastHeaderIdx = sortedHeaders[sortedHeaders.length - 1]
-          nextSample.clear() // 기존 데이터 자동 갱신을 위해 비움
-
-          // 패턴 분석용으로 헤더 다음 8개 행을 추출
-          const candidateRows: any[] = []
-          for (let i = lastHeaderIdx + 1; i < prev.allData.length; i++) {
-            if (candidateRows.length >= 8) break
-            const r = prev.allData[i]
-            if (r && !nextEtc.has(i)) {
-              const values = rowToValues(r)
-              const isNotEmpty = values.some(
-                (val) => val !== null && val !== undefined && String(val).trim() !== ""
-              )
-              if (isNotEmpty) {
-                candidateRows.push(r)
-              }
-            }
-          }
-
-          // 1단 vs 2단 자동 판별
-          let detectedHeight = 1
-          if (candidateRows.length >= 4) {
-            const signatures = candidateRows.map((row) => {
-              const values = rowToValues(row)
-              return values.map(
-                (val) => val !== null && val !== undefined && String(val).trim() !== ""
-              )
-            })
-
-            // 1단 패턴 비교 (인접행 간의 차이 평균)
-            let diffCount1 = 0
-            for (let i = 0; i < signatures.length - 1; i++) {
-              const s1 = signatures[i]
-              const s2 = signatures[i + 1]
-              let diff = 0
-              for (let c = 0; c < s1.length; c++) {
-                if (s1[c] !== s2[c]) diff++
-              }
-              diffCount1 += diff
-            }
-            const avgDiff1 = diffCount1 / (signatures.length - 1)
-
-            // 2단 패턴 비교 (주기 2 차이 평균)
-            let diffCount2 = 0
-            let compares2 = 0
-            for (let i = 0; i < signatures.length - 2; i++) {
-              const s1 = signatures[i]
-              const s2 = signatures[i + 2]
-              let diff = 0
-              for (let c = 0; c < s1.length; c++) {
-                if (s1[c] !== s2[c]) diff++
-              }
-              diffCount2 += diff
-              compares2++
-            }
-            const avgDiff2 = compares2 > 0 ? diffCount2 / compares2 : 999
-
-            // 첫째행과 둘째행의 차이
-            const firstRow = signatures[0]
-            const secondRow = signatures[1]
-            let firstSecondDiff = 0
-            for (let c = 0; c < firstRow.length; c++) {
-              if (firstRow[c] !== secondRow[c]) firstSecondDiff++
-            }
-
-            // 차이가 뚜렷하고, 주기 2의 차이가 주기 1의 차이보다 확연히 작으면 2단 판정
-            if (firstSecondDiff > 1 && avgDiff2 < avgDiff1 * 0.7) {
-              detectedHeight = 2
-            }
-          }
-
-          newRecordHeight = detectedHeight
-
-          // 판별된 레코드 높이에 맞추어 검증에 필요한 샘플 데이터 세트 구성 (첫 번째 데이터 세트만 지정)
-          const targetRecordCount = 1
-          const targetRowCount = targetRecordCount * newRecordHeight
-          
-          let count = 0
-          for (let i = lastHeaderIdx + 1; i < prev.allData.length; i++) {
-            if (count >= targetRowCount) break
-            const r = prev.allData[i]
-            if (r && !nextEtc.has(i)) {
-              const values = rowToValues(r)
-              const isNotEmpty = values.some(
-                (val) => val !== null && val !== undefined && String(val).trim() !== ""
-              )
-              if (isNotEmpty) {
-                nextSample.add(i)
-                count++
-              }
-            }
-          }
-        }
 
         const sortedSample = Array.from(nextSample).sort((a, b) => a - b)
         const newSampleBaseRow = sortedSample.length > 0 ? sortedSample[0] : prev.sampleBaseRow

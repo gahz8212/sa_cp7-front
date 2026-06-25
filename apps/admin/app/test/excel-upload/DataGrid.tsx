@@ -35,7 +35,12 @@ const isValidType = (value: string, type: string, regex?: string | null) => {
   const lowerType = type ? type.toLowerCase() : ""
   const isNumeric = /^\d+(\.\d+)?$/.test(trimmedValue.replace(/[\s,]/g, ""))
 
-  if (lowerType === "number" || lowerType === "int" || lowerType === "float" || lowerType === "double") {
+  if (
+    lowerType === "number" ||
+    lowerType === "int" ||
+    lowerType === "float" ||
+    lowerType === "double"
+  ) {
     return isNumeric
   }
   if (lowerType === "phone") {
@@ -89,8 +94,9 @@ function DraggableBadge({ col, disabled }: { col: any; disabled: boolean }) {
     >
       <Badge
         variant={getBadgeVariant(col.dataType)}
-        className={`${!disabled ? "cursor-pointer shadow-sm hover:shadow-md" : ""} ${col.required ? "ring-2 ring-red-500/50" : ""
-          } ${isSelected ? "ring-4 ring-blue-500 animate-pulse scale-110 z-10 transition-transform" : ""}`}
+        className={`${!disabled ? "cursor-pointer shadow-sm hover:shadow-md" : ""} ${
+          col.required ? "ring-2 ring-red-500/50" : ""
+        } ${isSelected ? "ring-4 ring-blue-500 animate-pulse scale-110 z-10 transition-transform" : ""}`}
         title={col.description}
       >
         {col.name} {col.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
@@ -139,8 +145,9 @@ function DraggableMappedBadge({ col, onCancel }: { col: any; onCancel: () => voi
       <Badge
         variant={getBadgeVariant(col.dataType)}
         size="sm"
-        className={`shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent ${col.required ? "ring-2 ring-red-500/50" : ""
-          }`}
+        className={`shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent ${
+          col.required ? "ring-2 ring-red-500/50" : ""
+        }`}
         title="드래그하여 이동하거나 더블 클릭하여 매핑 해제"
         onDoubleClick={(e) => {
           e.stopPropagation()
@@ -207,8 +214,10 @@ export function DataGrid() {
     if (validationErrors && validationErrors.length > 0) {
       console.log("=== [Validation Errors Received] ===")
       validationErrors.forEach((err: any, idx: number) => {
-        console.log(`Error ${idx}: rowIndex=${err.rowIndex}, columnCode=${err.columnCode}, errorMessage=${err.errorMessage}, invalidValue=${err.invalidValue}`);
-      });
+        console.log(
+          `Error ${idx}: rowIndex=${err.rowIndex}, columnCode=${err.columnCode}, errorMessage=${err.errorMessage}, invalidValue=${err.invalidValue}`,
+        )
+      })
       console.log("====================================")
     }
   }, [validationErrors])
@@ -301,12 +310,14 @@ export function DataGrid() {
   }, [showErrorsOnly])
 
   const viewableRows = useMemo(() => {
-    return allData.map((row, index) => ({ row, index })).filter(({ index }) => {
-      if (!showErrorsOnly) return true
-      if (selectedHeaderRows.has(index)) return true
-      if (invalidRowIndices.has(index)) return true
-      return false
-    })
+    return allData
+      .map((row, index) => ({ row, index }))
+      .filter(({ index }) => {
+        if (!showErrorsOnly) return true
+        if (selectedHeaderRows.has(index)) return true
+        if (invalidRowIndices.has(index)) return true
+        return false
+      })
   }, [allData, showErrorsOnly, selectedHeaderRows, invalidRowIndices])
 
   const paginatedData = useMemo(() => {
@@ -320,10 +331,9 @@ export function DataGrid() {
 
   const totalPages = Math.max(1, Math.ceil(viewableRows.length / pageSize))
 
-
   // 타입 에러 체크(hasTypeError) 로직은 프론트엔드 성능을 위해 제거하고 백엔드로 위임합니다.
-  const hasTypeError = false;
-  [
+  const hasTypeError = false
+  ;[
     allData,
     mappingResult,
     sampleBaseRow,
@@ -377,7 +387,12 @@ export function DataGrid() {
           isCompatible = true
         } else if (sysType === "string") {
           isCompatible = true
-        } else if (sysType === "number" || sysType === "int" || sysType === "float" || sysType === "double") {
+        } else if (
+          sysType === "number" ||
+          sysType === "int" ||
+          sysType === "float" ||
+          sysType === "double"
+        ) {
           isCompatible = excType === "number"
         } else if (sysType === "phone") {
           isCompatible = excType === "phone"
@@ -401,7 +416,9 @@ export function DataGrid() {
           updateColumnMapping(draggedCol.name, excelHeaderName, c, relativeRow)
         } else {
           // 일치하지 않으면 경고 후 튕겨냄
-          alert(`타입 불일치: '${excelHeaderName}' 열은 [${excType}] 형식이나, 시스템은 [${sysType}] 형식을 요구합니다.`)
+          alert(
+            `타입 불일치: '${excelHeaderName}' 열은 [${excType}] 형식이나, 시스템은 [${sysType}] 형식을 요구합니다.`,
+          )
         }
       } else {
         // 분석이 안 된 경우나 타입 정보가 없는 경우는 유연하게 무조건 허용
@@ -437,9 +454,7 @@ export function DataGrid() {
 
   // 매핑되지 않은 시스템 컬럼만 배지로 표시
   const unmappedColumns = useMemo(() => {
-    return targetColumns.filter(
-      (c) => c.excelColIndex === null || c.excelColIndex === undefined,
-    )
+    return targetColumns.filter((c) => c.excelColIndex === null || c.excelColIndex === undefined)
   }, [targetColumns])
 
   // 매핑되지 않은 필수 시스템 컬럼이 있는지 확인
@@ -530,13 +545,9 @@ export function DataGrid() {
             >
               헤더 선택 {selectedHeaderRows.size > 0 && "✓"}
             </Button>
-            {/* <Button
+            <Button
               variant={
-                mode === "DATA"
-                  ? "primary"
-                  : selectedSampleRows.size > 0
-                  ? "outline"
-                  : "secondary"
+                mode === "DATA" ? "primary" : selectedSampleRows.size > 0 ? "outline" : "secondary"
               }
               className={
                 mode !== "DATA" && selectedSampleRows.size > 0
@@ -548,13 +559,9 @@ export function DataGrid() {
             >
               데이터 선택 {selectedSampleRows.size > 0 && "✓"}
             </Button>
-            <Button
+            {/* <Button
               variant={
-                mode === "ETC"
-                  ? "primary"
-                  : selectedEtcRows.size > 0
-                  ? "outline"
-                  : "secondary"
+                mode === "ETC" ? "primary" : selectedEtcRows.size > 0 ? "outline" : "secondary"
               }
               className={
                 mode !== "ETC" && selectedEtcRows.size > 0
@@ -566,14 +573,10 @@ export function DataGrid() {
             >
               기타 선택 {selectedEtcRows.size > 0 && "✓"}
             </Button> */}
+
             <Button variant="secondary" onClick={resetSelection} size="sm">
               선택 영역 삭제
             </Button>
-
-
-
-
-
 
             {/* 툴팁 에니메이션 */}
             {/* 💡 단일 도움말 가이드 배지 (마우스 드래그 애니메이션 탑재) */}
@@ -586,38 +589,59 @@ export function DataGrid() {
               <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2.5 z-50 hidden group-hover:block w-72 p-4 rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all duration-200 animate-in fade-in slide-in-from-top-2">
                 <div className="text-[11px] font-bold text-gray-800 mb-2 flex items-center justify-between">
                   <span className="flex items-center gap-1">🖱️ 영역 설정 가이드</span>
-                  <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-normal">미리보기 모션</span>
+                  <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-normal">
+                    미리보기 모션
+                  </span>
                 </div>
 
                 {/* CSS 가상 엑셀 모형 시트 */}
                 <div className="relative border border-gray-300 rounded-lg overflow-hidden bg-gray-50 p-1 flex flex-col gap-1 select-none pointer-events-none w-full">
                   {/* 가상 마우스 커서 (Pointer SVG) */}
-                  <div className="absolute z-30 pointer-events-none"
+                  <div
+                    className="absolute z-30 pointer-events-none"
                     style={{
                       left: 0,
                       top: 0,
                       animation: "cursor-move 4s infinite ease-in-out",
-                    }}>
-                    <svg className="w-5 h-5 text-gray-900 drop-shadow-[0_2px_3px_rgba(0,0,0,0.3)]" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M4.5 3v15.5l4.5-4.5h6.5L4.5 3z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                    }}
+                  >
+                    <svg
+                      className="w-5 h-5 text-gray-900 drop-shadow-[0_2px_3px_rgba(0,0,0,0.3)]"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M4.5 3v15.5l4.5-4.5h6.5L4.5 3z"
+                        stroke="white"
+                        strokeWidth="1.5"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   </div>
 
                   <div className="flex gap-1 items-center h-7 px-1.5 text-[9px]  bg-gray-100 rounded border border-gray-200">
-                    <span className="text-left p-1 bg-blue-500 text-black-500 rounded">헤더 선택</span>
-                    <span className="text-left p-1 bg-gray-300 text-black-500 rounded">데이터 선택</span>
+                    <span className="text-left p-1 bg-blue-500 text-black-500 rounded">
+                      헤더 선택
+                    </span>
+                    <span className="text-left p-1 bg-gray-300 text-black-500 rounded">
+                      데이터 선택
+                    </span>
                   </div>
 
                   {/* 1번 가상 행 */}
-                  <div className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 bg-white rounded border border-gray-200 transition-colors"
-                    style={{ animation: "row-fill-1 4s infinite ease-in-out" }}>
+                  <div
+                    className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 bg-white rounded border border-gray-200 transition-colors"
+                    style={{ animation: "row-fill-1 4s infinite ease-in-out" }}
+                  >
                     <span className="w-6 text-center text-gray-400 font-bold border-r pr-1">1</span>
                     <span className="flex-grow pl-1 text-gray-500 font-medium">클릭!</span>
                   </div>
 
                   {/* 2번 가상 행 */}
-                  <div className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 bg-white rounded border border-gray-200 transition-colors"
-                    style={{ animation: "row-fill-2 4s infinite ease-in-out" }}>
+                  <div
+                    className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 bg-white rounded border border-gray-200 transition-colors"
+                    style={{ animation: "row-fill-2 4s infinite ease-in-out" }}
+                  >
                     <span className="w-6 text-center text-gray-400 font-bold border-r pr-1">2</span>
                     <span className="flex-grow pl-1 text-gray-500 font-medium">클릭!</span>
                   </div>
@@ -628,8 +652,9 @@ export function DataGrid() {
                 </p>
 
                 {/* CSS Keyframe 스타일 태그 주입 */}
-                <style dangerouslySetInnerHTML={{
-                  __html: `
+                <style
+                  dangerouslySetInnerHTML={{
+                    __html: `
                   /* 
                     [가이드 애니메이션 직접 수정 방법]
                     
@@ -643,34 +668,37 @@ export function DataGrid() {
                        - rgba(254, 240, 138, 0.7) 대신 다른 색상 코드를 넣어 헤더(노랑), 데이터(초록) 등의 드래그 효과를 시뮬레이션할 수 있습니다.
                   */
                   @keyframes cursor-move {
-                    0% { transform: translate(15px, 20px)  }
-                    10% { transform: translate(5px, 20px) scale(0.8);; }
-                    15% { transform: translate(15px, 20px) scale(1); }
-                    20% { transform: translate(15px, 42px); }
-                    30% { transform: translate(15px, 42px) scale(0.8); }
-                    40% { transform: translate(15px, 42px) scale(1.0); }
+                    0% { transform: translate(15px, 15px)  }
+                    10% { transform: translate(15px, 15px) scale(0.8);; }
+                    20% { transform: translate(15px, 15px) scale(1); }
+                    30% { transform: translate(15px, 42px); }
+                    40% { transform: translate(15px, 42px) scale(0.8); }
+                    50% { transform: translate(15px, 42px) scale(1.0); }
                     60% { transform: translate(15px, 72px) scale(0.8); }
-                    75% { transform: translate(15px, 72px) scale(1); }
-                    90% { transform: translate(5px, 20px); }
-                    100% { transform: translate(5px, 20px); }
+                    70% { transform: translate(15px, 72px) scale(1); }
+                    // 80% { transform: translate(15px, 42px); }
+                    90% { transform: translate(15px, 15px); }
+                    100% { transform: translate(15px, 15px); }
                   }
                   @keyframes row-fill-1 {
                     0% { background-color: #ffffff; }
                     28% { background-color: #ffffff; }
-                    30% { background-color: rgba(254, 240, 138, 0.7); }
-                    85% { background-color: rgba(254, 240, 138, 0.7); }
+                    55% { background-color: rgba(254, 240, 138, 0.7); }
+                    80% { background-color: rgba(254, 240, 138, 0.7); }
                     95% { background-color: #ffffff; }
                     100% { background-color: #ffffff; }
                   }
                   @keyframes row-fill-2 {
                     0% { background-color: #ffffff; }
                     58% { background-color: #ffffff; }
-                    60% { background-color: rgba(254, 240, 138, 0.7); }
+                    75% { background-color: rgba(254, 240, 138, 0.7); }
                     85% { background-color: rgba(254, 240, 138, 0.7); }
                     95% { background-color: #ffffff; }
                     100% { background-color: #ffffff; }
                   }
-                `}} />
+                `,
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -679,10 +707,11 @@ export function DataGrid() {
         <div className="flex items-center gap-2">
           <div className="mx-2 border-l h-6" />
           <Button
-            className={`shadow-md transition-all active:scale-95 ${isCompleteButtonDisabled
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-red-600 hover:bg-red-700 text-white"
-              }`}
+            className={`shadow-md transition-all active:scale-95 ${
+              isCompleteButtonDisabled
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-700 text-white"
+            }`}
             onClick={onCompleteClick}
             disabled={isCompleteButtonDisabled}
           >
@@ -693,8 +722,11 @@ export function DataGrid() {
       <div className="mt-6 flex flex-col">
         {/* 백엔드 시스템 컬럼 (D&D Source 영역) - 매핑 완료 시 스르륵 사라짐 */}
         <div
-          className={`transition-all duration-500 ease-in-out ${isMappingConfirmed ? "max-h-0 opacity-0 mb-0 overflow-hidden" : "max-h-[500px] opacity-100 mb-4 overflow-visible"
-            }`}
+          className={`transition-all duration-500 ease-in-out ${
+            isMappingConfirmed
+              ? "max-h-0 opacity-0 mb-0 overflow-hidden"
+              : "max-h-[500px] opacity-100 mb-4 overflow-visible"
+          }`}
         >
           <div
             className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
@@ -716,33 +748,54 @@ export function DataGrid() {
                   {/* CSS group-hover 기반 팝업 노출 */}
                   <div className="absolute left-0 top-full mt-2.5 z-50 hidden group-hover:block w-[460px] p-4 rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all duration-200 animate-in fade-in slide-in-from-top-2">
                     <div className="text-[11px] font-bold text-gray-800 mb-2 flex items-center justify-between select-none">
-                      <span className="flex items-center gap-1">🖱️ 시스템 컬럼 매핑 방법 (2가지)</span>
-                      <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-normal">실시간 시뮬레이션</span>
+                      <span className="flex items-center gap-1">
+                        🖱️ 시스템 컬럼 매핑 방법 (2가지)
+                      </span>
+                      <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-normal">
+                        실시간 시뮬레이션
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 divide-x divide-gray-150">
                       {/* 왼쪽: 방법 1 */}
                       <div className="flex flex-col gap-2">
-                        <div className="text-[9.5px] font-bold text-gray-700">방법 1: 드래그 앤 드롭</div>
+                        <div className="text-[9.5px] font-bold text-gray-700">
+                          방법 1: 드래그 앤 드롭
+                        </div>
 
                         <div className="relative flex justify-between items-center gap-1 p-2 h-16 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden select-none pointer-events-none w-full">
                           {/* 가상 마우스 커서 1 */}
-                          <div className="absolute z-30 pointer-events-none"
+                          <div
+                            className="absolute z-30 pointer-events-none"
                             style={{
                               left: 0,
                               top: 0,
                               animation: "map-cursor-move-1 4s infinite ease-in-out",
-                            }}>
-                            <svg className="w-4 h-4 text-gray-900 drop-shadow-[0_2px_3px_rgba(0,0,0,0.3)]" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M4.5 3v15.5l4.5-4.5h6.5L4.5 3z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                            }}
+                          >
+                            <svg
+                              className="w-4 h-4 text-gray-900 drop-shadow-[0_2px_3px_rgba(0,0,0,0.3)]"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M4.5 3v15.5l4.5-4.5h6.5L4.5 3z"
+                                stroke="white"
+                                strokeWidth="1.5"
+                                strokeLinejoin="round"
+                              />
                             </svg>
                           </div>
 
                           {/* 시스템 컬럼 소스 배지 */}
                           <div className="flex flex-col gap-0.5 items-start">
-                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">시스템 컬럼</span>
-                            <div className="px-1 py-0.5 bg-blue-100 text-blue-800 text-[8.5px] font-bold rounded border border-blue-200 shadow-sm relative transition-all"
-                              style={{ animation: "badge-state-1 4s infinite ease-in-out" }}>
+                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">
+                              시스템 컬럼
+                            </span>
+                            <div
+                              className="px-1 py-0.5 bg-blue-100 text-blue-800 text-[8.5px] font-bold rounded border border-blue-200 shadow-sm relative transition-all"
+                              style={{ animation: "badge-state-1 4s infinite ease-in-out" }}
+                            >
                               이름 *
                             </div>
                           </div>
@@ -752,12 +805,18 @@ export function DataGrid() {
 
                           {/* 헤더 대상 셀 */}
                           <div className="flex flex-col gap-0.5 items-start mr-1">
-                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">엑셀 헤더 셀</span>
+                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">
+                              엑셀 헤더 셀
+                            </span>
                             <div className="w-12 h-6 bg-yellow-100 border border-yellow-400 rounded flex flex-col items-center justify-center relative overflow-hidden">
                               <span className="text-[8.5px] text-yellow-900 font-bold">성명</span>
 
-                              <div className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center scale-0 whitespace-nowrap transition-transform"
-                                style={{ animation: "mapped-badge-scale-1 4s infinite ease-in-out" }}>
+                              <div
+                                className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center scale-0 whitespace-nowrap transition-transform"
+                                style={{
+                                  animation: "mapped-badge-scale-1 4s infinite ease-in-out",
+                                }}
+                              >
                                 이름 *
                               </div>
                             </div>
@@ -770,26 +829,43 @@ export function DataGrid() {
 
                       {/* 오른쪽: 방법 2 */}
                       <div className="flex flex-col gap-2 pl-4">
-                        <div className="text-[9.5px] font-bold text-gray-700">방법 2: 클릭 ➔ 클릭</div>
+                        <div className="text-[9.5px] font-bold text-gray-700">
+                          방법 2: 클릭 ➔ 클릭
+                        </div>
 
                         <div className="relative flex justify-between items-center gap-1 p-2 h-16 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden select-none pointer-events-none w-full">
                           {/* 가상 마우스 커서 2 */}
-                          <div className="absolute z-30 pointer-events-none"
+                          <div
+                            className="absolute z-30 pointer-events-none"
                             style={{
                               left: 0,
                               top: 0,
                               animation: "map-cursor-move-2 4s infinite ease-in-out",
-                            }}>
-                            <svg className="w-4 h-4 text-gray-900 drop-shadow-[0_2px_3px_rgba(0,0,0,0.3)]" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M4.5 3v15.5l4.5-4.5h6.5L4.5 3z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                            }}
+                          >
+                            <svg
+                              className="w-4 h-4 text-gray-900 drop-shadow-[0_2px_3px_rgba(0,0,0,0.3)]"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M4.5 3v15.5l4.5-4.5h6.5L4.5 3z"
+                                stroke="white"
+                                strokeWidth="1.5"
+                                strokeLinejoin="round"
+                              />
                             </svg>
                           </div>
 
                           {/* 시스템 컬럼 소스 배지 */}
                           <div className="flex flex-col gap-0.5 items-start">
-                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">시스템 컬럼</span>
-                            <div className="px-1 py-0.5 bg-blue-100 text-blue-800 text-[8.5px] font-bold rounded border border-blue-200 shadow-sm relative transition-all"
-                              style={{ animation: "badge-state-2 4s infinite ease-in-out" }}>
+                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">
+                              시스템 컬럼
+                            </span>
+                            <div
+                              className="px-1 py-0.5 bg-blue-100 text-blue-800 text-[8.5px] font-bold rounded border border-blue-200 shadow-sm relative transition-all"
+                              style={{ animation: "badge-state-2 4s infinite ease-in-out" }}
+                            >
                               이름 *
                             </div>
                           </div>
@@ -799,12 +875,18 @@ export function DataGrid() {
 
                           {/* 헤더 대상 셀 */}
                           <div className="flex flex-col gap-0.5 items-start mr-1">
-                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">엑셀 헤더 셀</span>
+                            <span className="text-[6.5px] text-gray-400 font-bold scale-90 origin-left">
+                              엑셀 헤더 셀
+                            </span>
                             <div className="w-12 h-6 bg-yellow-100 border border-yellow-400 rounded flex flex-col items-center justify-center relative overflow-hidden">
                               <span className="text-[8.5px] text-yellow-900 font-bold">성명</span>
 
-                              <div className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center scale-0 whitespace-nowrap transition-transform"
-                                style={{ animation: "mapped-badge-scale-2 4s infinite ease-in-out" }}>
+                              <div
+                                className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center scale-0 whitespace-nowrap transition-transform"
+                                style={{
+                                  animation: "mapped-badge-scale-2 4s infinite ease-in-out",
+                                }}
+                              >
                                 이름 *
                               </div>
                             </div>
@@ -817,8 +899,9 @@ export function DataGrid() {
                     </div>
 
                     {/* CSS Keyframe 스타일 태그 주입 */}
-                    <style dangerouslySetInnerHTML={{
-                      __html: `
+                    <style
+                      dangerouslySetInnerHTML={{
+                        __html: `
                       @keyframes map-cursor-move-1 {
                         0%   { transform: translate(5px, 5px) scale(1); }
                         15%  { transform: translate(25px, 20px) scale(1); }
@@ -878,7 +961,9 @@ export function DataGrid() {
                         90%  { transform: scale(0); }
                         100% { transform: scale(0); }
                       }
-                    `}} />
+                    `,
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -921,9 +1006,13 @@ export function DataGrid() {
               {paginatedData.map((item: any, localIndex: number) => {
                 const { row, index: originalRowIndex } = item
                 // 현재 페이지의 실제 데이터 개수 (index가 -1이 아닌 것들의 수)
-                const currentDataLength = paginatedData.length - paginatedData.filter((i: any) => i.index === -1).length
+                const currentDataLength =
+                  paginatedData.length - paginatedData.filter((i: any) => i.index === -1).length
                 // 빈 행(padding)인 경우 원본 데이터 길이(allData.length)에 이어서 순차적인 번호 부여
-                const rowIndex = originalRowIndex !== -1 ? originalRowIndex : allData.length + (localIndex - currentDataLength)
+                const rowIndex =
+                  originalRowIndex !== -1
+                    ? originalRowIndex
+                    : allData.length + (localIndex - currentDataLength)
 
                 const isEmptyRow = row === null
                 const isHeader = selectedHeaderRows.has(rowIndex)
@@ -938,10 +1027,13 @@ export function DataGrid() {
                 const isRowInvalid = invalidRowIndices.has(rowIndex)
 
                 const hoverClass =
-                  mode === "HEADER" ? "hover:bg-yellow-100/60" :
-                    mode === "DATA" ? "hover:bg-green-100/60" :
-                      mode === "ETC" ? "hover:bg-blue-100/60" :
-                        "hover:bg-gray-50";
+                  mode === "HEADER"
+                    ? "hover:bg-yellow-100/60"
+                    : mode === "DATA"
+                      ? "hover:bg-green-100/60"
+                      : mode === "ETC"
+                        ? "hover:bg-blue-100/60"
+                        : "hover:bg-gray-50"
 
                 return (
                   <tr
@@ -949,26 +1041,27 @@ export function DataGrid() {
                     className={`select-none cursor-pointer transition-colors duration-150 ${isHeader ? "bg-yellow-50" : isData ? "bg-green-50" : isEtc ? "bg-blue-50" : isRowInvalid ? "bg-red-50" : hoverClass} ${isRecordEnd ? "border-b-4 border-gray-800" : ""}`}
                   >
                     <td
-                      onMouseDown={() => {
+                      onClick={() => {
                         if (mode) {
-                          setIsMouseDown(true);
-                          handleRowClick(rowIndex);
-                        }
-                      }}
-                      onMouseEnter={() => {
-                        if (isMouseDown && mode) {
-                          handleRowClick(rowIndex);
+                          handleRowClick(rowIndex)
                         }
                       }}
                       className="border-2 p-2 text-xs text-gray-500 bg-gray-100/80 w-14 text-center border-gray-800 whitespace-nowrap select-none hover:bg-gray-200 transition-colors font-medium relative"
-                      title={mode ? "마우스 드래그로 연속 선택 가능" : "상단 모드 클릭 후 선택"}
+                      title={mode ? "클릭하여 선택" : "상단 모드 클릭 후 선택"}
                     >
                       <div className="flex items-center justify-between px-1">
                         {/* 상태 배지 인디케이터 */}
-                        <span className="w-2 h-2 rounded-full inline-block mr-1 flex-shrink-0"
+                        <span
+                          className="w-2 h-2 rounded-full inline-block mr-1 flex-shrink-0"
                           style={{
-                            backgroundColor: isHeader ? "#eab308" : isData ? "#22c55e" : isEtc ? "#3b82f6" : "transparent",
-                            border: isHeader || isData || isEtc ? "none" : "1px solid #d1d5db"
+                            backgroundColor: isHeader
+                              ? "#eab308"
+                              : isData
+                                ? "#22c55e"
+                                : isEtc
+                                  ? "#3b82f6"
+                                  : "transparent",
+                            border: isHeader || isData || isEtc ? "none" : "1px solid #d1d5db",
                           }}
                         />
                         <span className="flex-grow text-center font-mono">{rowIndex + 1}</span>
@@ -990,12 +1083,14 @@ export function DataGrid() {
                           (recordHeight === 1 ? true : col.relativeRowIndex === relativeRow),
                       )
 
-                      const absoluteRowIndex = row?.rowIndex ?? (rowIndex + startRowIndex)
+                      const absoluteRowIndex = row?.rowIndex ?? rowIndex + startRowIndex
                       const backendError = mappedCol
-                        ? (validationErrors || []).find((err: any) =>
-                          err.rowIndex === absoluteRowIndex &&
-                          (err.columnCode === mappedCol.name || err.columnCode === mappedCol.frontColumn)
-                        )
+                        ? (validationErrors || []).find(
+                            (err: any) =>
+                              err.rowIndex === absoluteRowIndex &&
+                              (err.columnCode === mappedCol.name ||
+                                err.columnCode === mappedCol.frontColumn),
+                          )
                         : null
 
                       const isInvalid = !!backendError // 백엔드 검증 에러
@@ -1017,7 +1112,7 @@ export function DataGrid() {
                         (col) =>
                           isHeaderRowSelected &&
                           col.excelColIndex === colIndex &&
-                          ((col.relativeRowIndex ?? 0) === relativeHeaderRow)
+                          (col.relativeRowIndex ?? 0) === relativeHeaderRow,
                       )
 
                       const isCellEmpty = String(cell || "").trim() === ""
@@ -1027,7 +1122,8 @@ export function DataGrid() {
                           key={colIndex}
                           title={backendError ? backendError.errorMessage : undefined}
                           onClick={() => {
-                            const { selectedSystemColumn, setSelectedSystemColumn } = useExcelStore.getState()
+                            const { selectedSystemColumn, setSelectedSystemColumn } =
+                              useExcelStore.getState()
 
                             if (selectedSystemColumn && isHeaderRowSelected) {
                               // 클릭 매핑
@@ -1035,7 +1131,7 @@ export function DataGrid() {
                                 selectedSystemColumn.name,
                                 String(cell || "").trim(), // 드래그 방식과 동일하게 엑셀의 실제 헤더명을 전달
                                 colIndex,
-                                relativeHeaderRow // 시각적 위치 보존을 위해 원래 드롭/클릭된 상대 위치를 전달
+                                relativeHeaderRow, // 시각적 위치 보존을 위해 원래 드롭/클릭된 상대 위치를 전달
                               )
                               setSelectedSystemColumn(null)
                             } else if (mode === "HEADER" && isHeaderRowSelected) {
@@ -1140,8 +1236,9 @@ export function DataGrid() {
         {activeCol ? (
           <Badge
             variant={getBadgeVariant(activeCol.dataType)}
-            className={`cursor-grabbing shadow-lg scale-105 min-w-[100px] justify-center ${activeCol.required ? "ring-2 ring-red-500/50" : ""
-              }`}
+            className={`cursor-grabbing shadow-lg scale-105 min-w-[100px] justify-center ${
+              activeCol.required ? "ring-2 ring-red-500/50" : ""
+            }`}
           >
             {activeCol.name}{" "}
             {activeCol.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
