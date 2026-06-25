@@ -258,13 +258,50 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
   setMappingResult: (mappingResult) => set({ mappingResult }),
 
   resetSelection: () => {
-    const { mode } = get()
+    const { mode, allData, selectedHeaderRows, selectedSampleRows, selectedEtcRows } = get()
+    let toDelete = new Set<number>()
+
     if (mode === "HEADER") {
-      set({ selectedHeaderRows: new Set(), selectedHeaderCells: new Set() })
+      toDelete = selectedHeaderRows
     } else if (mode === "DATA") {
-      set({ selectedSampleRows: new Set() })
+      toDelete = selectedSampleRows
     } else if (mode === "ETC") {
-      set({ selectedEtcRows: new Set() })
+      toDelete = selectedEtcRows
+    }
+
+    if (toDelete.size === 0) {
+      alert("삭제할 선택 영역이 없습니다.")
+      return
+    }
+
+    // 선택된 행들을 엑셀 원본 데이터에서 영구 제외(삭제)
+    const newAllData = allData.filter((_, idx) => !toDelete.has(idx))
+
+    if (mode === "HEADER") {
+      set({
+        allData: newAllData,
+        totalCount: newAllData.length,
+        selectedHeaderRows: new Set(),
+        selectedHeaderCells: new Set(),
+        headerBaseRow: 0,
+        headerHeight: 0,
+      })
+    } else if (mode === "DATA") {
+      set({
+        allData: newAllData,
+        totalCount: newAllData.length,
+        selectedSampleRows: new Set(),
+        sampleBaseRow: 0,
+        recordHeight: 0,
+      })
+    } else if (mode === "ETC") {
+      set({
+        allData: newAllData,
+        totalCount: newAllData.length,
+        selectedEtcRows: new Set(),
+        etcBaseRow: 0,
+        etcHeight: 0,
+      })
     }
   },
 
@@ -733,33 +770,160 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
     const { mode } = get()
     if (mode === "HEADER") {
       set((prev) => {
-        const next = new Set(prev.selectedHeaderRows)
-        if (next.has(rowIndex)) {
-          next.delete(rowIndex)
+        const nextHeader = new Set(prev.selectedHeaderRows)
+        if (nextHeader.has(rowIndex)) {
+          nextHeader.delete(rowIndex)
         } else {
-          next.add(rowIndex)
+          nextHeader.add(rowIndex)
         }
-        const sorted = Array.from(next).sort((a, b) => a - b)
-        const newHeaderBaseRow = sorted.length > 0 ? sorted[0] : prev.headerBaseRow
-        const newHeaderHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0
+        const sortedHeaders = Array.from(nextHeader).sort((a, b) => a - b)
+        const newHeaderBaseRow = sortedHeaders.length > 0 ? sortedHeaders[0] : prev.headerBaseRow
+        const newHeaderHeight = sortedHeaders.length > 0 ? sortedHeaders[sortedHeaders.length - 1] - sortedHeaders[0] + 1 : 0
 
         const nextCells = new Set(prev.selectedHeaderCells)
         nextCells.forEach((id) => {
           if (id.startsWith(`${rowIndex}-`)) nextCells.delete(id)
         })
 
+        // 헤더로 선택되면 데이터(Sample) 및 기타(Etc)에서는 제외 (상호 배제)
+        const nextSample = new Set(prev.selectedSampleRows)
+        nextSample.delete(rowIndex)
+        const nextEtc = new Set(prev.selectedEtcRows)
+        nextEtc.delete(rowIndex)
+
+        // 자동 데이터 패턴 지정 Heuristic:
+        // 헤더 지정이 완료되면 헤더 바로 다음 행부터 비어있지 않은 행들을 수집하여 패턴(1단 vs 2단) 분석
+        let newRecordHeight = prev.recordHeight
+        if (sortedHeaders.length > 0) {
+          const lastHeaderIdx = sortedHeaders[sortedHeaders.length - 1]
+          nextSample.clear() // 기존 데이터 자동 갱신을 위해 비움
+
+          // 패턴 분석용으로 헤더 다음 8개 행을 추출
+          const candidateRows: any[] = []
+          for (let i = lastHeaderIdx + 1; i < prev.allData.length; i++) {
+            if (candidateRows.length >= 8) break
+            const r = prev.allData[i]
+            if (r && !nextEtc.has(i)) {
+              const values = rowToValues(r)
+              const isNotEmpty = values.some(
+                (val) => val !== null && val !== undefined && String(val).trim() !== ""
+              )
+              if (isNotEmpty) {
+                candidateRows.push(r)
+              }
+            }
+          }
+
+          // 1단 vs 2단 자동 판별
+          let detectedHeight = 1
+          if (candidateRows.length >= 4) {
+            const signatures = candidateRows.map((row) => {
+              const values = rowToValues(row)
+              return values.map(
+                (val) => val !== null && val !== undefined && String(val).trim() !== ""
+              )
+            })
+
+            // 1단 패턴 비교 (인접행 간의 차이 평균)
+            let diffCount1 = 0
+            for (let i = 0; i < signatures.length - 1; i++) {
+              const s1 = signatures[i]
+              const s2 = signatures[i + 1]
+              let diff = 0
+              for (let c = 0; c < s1.length; c++) {
+                if (s1[c] !== s2[c]) diff++
+              }
+              diffCount1 += diff
+            }
+            const avgDiff1 = diffCount1 / (signatures.length - 1)
+
+            // 2단 패턴 비교 (주기 2 차이 평균)
+            let diffCount2 = 0
+            let compares2 = 0
+            for (let i = 0; i < signatures.length - 2; i++) {
+              const s1 = signatures[i]
+              const s2 = signatures[i + 2]
+              let diff = 0
+              for (let c = 0; c < s1.length; c++) {
+                if (s1[c] !== s2[c]) diff++
+              }
+              diffCount2 += diff
+              compares2++
+            }
+            const avgDiff2 = compares2 > 0 ? diffCount2 / compares2 : 999
+
+            // 첫째행과 둘째행의 차이
+            const firstRow = signatures[0]
+            const secondRow = signatures[1]
+            let firstSecondDiff = 0
+            for (let c = 0; c < firstRow.length; c++) {
+              if (firstRow[c] !== secondRow[c]) firstSecondDiff++
+            }
+
+            // 차이가 뚜렷하고, 주기 2의 차이가 주기 1의 차이보다 확연히 작으면 2단 판정
+            if (firstSecondDiff > 1 && avgDiff2 < avgDiff1 * 0.7) {
+              detectedHeight = 2
+            }
+          }
+
+          newRecordHeight = detectedHeight
+
+          // 판별된 레코드 높이에 맞추어 검증에 필요한 샘플 데이터 세트 구성 (첫 번째 데이터 세트만 지정)
+          const targetRecordCount = 1
+          const targetRowCount = targetRecordCount * newRecordHeight
+          
+          let count = 0
+          for (let i = lastHeaderIdx + 1; i < prev.allData.length; i++) {
+            if (count >= targetRowCount) break
+            const r = prev.allData[i]
+            if (r && !nextEtc.has(i)) {
+              const values = rowToValues(r)
+              const isNotEmpty = values.some(
+                (val) => val !== null && val !== undefined && String(val).trim() !== ""
+              )
+              if (isNotEmpty) {
+                nextSample.add(i)
+                count++
+              }
+            }
+          }
+        }
+
+        const sortedSample = Array.from(nextSample).sort((a, b) => a - b)
+        const newSampleBaseRow = sortedSample.length > 0 ? sortedSample[0] : prev.sampleBaseRow
+
+        const sortedEtc = Array.from(nextEtc).sort((a, b) => a - b)
+        const newEtcBaseRow = sortedEtc.length > 0 ? sortedEtc[0] : prev.etcBaseRow
+        const newEtcHeight = sortedEtc.length > 0 ? sortedEtc[sortedEtc.length - 1] - sortedEtc[0] + 1 : prev.etcHeight
+
         return {
-          selectedHeaderRows: next,
+          selectedHeaderRows: nextHeader,
           headerBaseRow: newHeaderBaseRow,
           headerHeight: newHeaderHeight,
           selectedHeaderCells: nextCells,
+          selectedSampleRows: nextSample,
+          sampleBaseRow: newSampleBaseRow,
+          recordHeight: newRecordHeight,
+          selectedEtcRows: nextEtc,
+          etcBaseRow: newEtcBaseRow,
+          etcHeight: newEtcHeight,
         }
       })
     } else if (mode === "DATA") {
       set((prev) => {
         const next = new Set(prev.selectedSampleRows)
-        if (next.has(rowIndex)) next.delete(rowIndex)
-        else next.add(rowIndex)
+        if (next.has(rowIndex)) {
+          next.delete(rowIndex)
+        } else {
+          next.add(rowIndex)
+        }
+        
+        // 상호 배제: 데이터로 선택되면 헤더 및 기타에서는 제거
+        const nextHeader = new Set(prev.selectedHeaderRows)
+        nextHeader.delete(rowIndex)
+        const nextEtc = new Set(prev.selectedEtcRows)
+        nextEtc.delete(rowIndex)
+
         const sorted = Array.from(next).sort((a, b) => a - b)
         const newSampleBaseRow = sorted.length > 0 ? sorted[0] : prev.sampleBaseRow
         const newRecordHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0
@@ -767,13 +931,25 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
           selectedSampleRows: next,
           sampleBaseRow: newSampleBaseRow,
           recordHeight: newRecordHeight,
+          selectedHeaderRows: nextHeader,
+          selectedEtcRows: nextEtc,
         }
       })
     } else if (mode === "ETC") {
       set((prev) => {
         const next = new Set(prev.selectedEtcRows)
-        if (next.has(rowIndex)) next.delete(rowIndex)
-        else next.add(rowIndex)
+        if (next.has(rowIndex)) {
+          next.delete(rowIndex)
+        } else {
+          next.add(rowIndex)
+        }
+        
+        // 상호 배제: 기타로 선택되면 헤더 및 데이터에서는 제거
+        const nextHeader = new Set(prev.selectedHeaderRows)
+        nextHeader.delete(rowIndex)
+        const nextSample = new Set(prev.selectedSampleRows)
+        nextSample.delete(rowIndex)
+
         const sorted = Array.from(next).sort((a, b) => a - b)
         const newEtcBaseRow = sorted.length > 0 ? sorted[0] : prev.etcBaseRow
         const newEtcHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0
@@ -781,6 +957,8 @@ export const useExcelStore = create<ExcelState & ExcelActions>((set, get) => ({
           selectedEtcRows: next,
           etcBaseRow: newEtcBaseRow,
           etcHeight: newEtcHeight,
+          selectedHeaderRows: nextHeader,
+          selectedSampleRows: nextSample,
         }
       })
     }
