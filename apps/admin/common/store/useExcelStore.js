@@ -262,10 +262,7 @@ exports.useExcelStore = (0, zustand_1.create)((set, get) => ({
                 let absoluteDataStartRow = -1;
                 let absoluteHeaderStartRow = -1;
                 if (isInitial) {
-                    // 빈 행만 임시로 제거한 배열로 헤더 스캔 (검출 정확도 향상)
-                    const autoDetected = (0, excelUtils_1.detectDataArea)(rawRowsWithIndex);
-                    absoluteDataStartRow = rawRowsWithIndex[autoDetected.dataStartRow]?._originalRowIndex ?? -1;
-                    absoluteHeaderStartRow = rawRowsWithIndex[autoDetected.headerStartRow]?._originalRowIndex ?? -1;
+                    // 수동 모드에서는 파일 업로드 시 영역 자동 판별을 적용하지 않습니다.
                 }
                 else {
                     absoluteDataStartRow = get().sampleBaseRow;
@@ -420,66 +417,14 @@ exports.useExcelStore = (0, zustand_1.create)((set, get) => ({
                             isStructureSet = true;
                         }
                         else {
-                            // ──────────────────────────────────────────────────────────────
-                            // [저장된 매핑 없음] 노이즈 제거 → 헤더 자동 탐지 → recordHeight 결정
-                            // 10행 안에 헤더가 없으면 합성 헤더 행을 newRows 앞에 삽입
-                            // ──────────────────────────────────────────────────────────────
-                            const { headerStartRow, dataStartRow: rawDataStart, recordHeight: rh, syntheticHeaderNames } = (0, excelUtils_1.detectDataArea)(newRows);
-                            // 합성 헤더 처리: 헤더가 없는 경우 "컬럼1", "컬럼2"... 행을 데이터 앞에 삽입
-                            let dataStartRow = rawDataStart;
-                            let hBaseRow = headerStartRow;
-                            if (syntheticHeaderNames !== null) {
-                                const syntheticRow = {};
-                                syntheticHeaderNames.forEach((name, i) => { syntheticRow[String(i)] = name; });
-                                newRows = [syntheticRow, ...newRows];
-                                dataStartRow = rawDataStart + 1; // 삽입으로 인해 모든 인덱스 +1
-                                hBaseRow = 0; // 합성 헤더는 0번부터 시작
-                                // allData·allOriginalData에도 합성 헤더 반영
-                                set((prev) => ({
-                                    allData: [syntheticRow, ...prev.allData],
-                                    allOriginalData: [{ ...syntheticRow }, ...prev.allOriginalData],
-                                }));
-                            }
-                            const detectedHeaderRows = new Set();
-                            for (let i = hBaseRow; i < dataStartRow; i++)
-                                detectedHeaderRows.add(i);
-                            const hHeight = Math.max(detectedHeaderRows.size, 1);
-                            const sBaseRow = dataStartRow;
-                            // 헤더 내 frontColumn 이름으로 컬럼 매핑 시도
-                            for (let i = hBaseRow; i < hBaseRow + hHeight && i < newRows.length; i++) {
-                                const rowValues = (0, excelUtils_1.rowToValues)(newRows[i]).map((v) => String(v || '').trim());
-                                targetColumns.forEach((col) => {
-                                    let resolvedIndex = col.excelColIndex !== null && col.excelColIndex !== undefined ? col.excelColIndex : null;
-                                    if (col.frontColumn) {
-                                        const expectedName = col.frontColumn.trim();
-                                        if (resolvedIndex !== null && rowValues[resolvedIndex] !== expectedName) {
-                                            const foundIdx = rowValues.indexOf(expectedName);
-                                            if (foundIdx !== -1) {
-                                                resolvedIndex = foundIdx;
-                                                col.relativeRowIndex = i - hBaseRow;
-                                            }
-                                        }
-                                        else if (resolvedIndex === null) {
-                                            const foundIdx = rowValues.indexOf(expectedName);
-                                            if (foundIdx !== -1) {
-                                                resolvedIndex = foundIdx;
-                                                col.relativeRowIndex = i - hBaseRow;
-                                            }
-                                        }
-                                    }
-                                    col.excelColIndex = resolvedIndex;
-                                });
-                            }
-                            const detectedSampleRows = new Set();
-                            for (let i = sBaseRow; i < sBaseRow + rh && i < newRows.length; i++)
-                                detectedSampleRows.add(i);
+                            // [매핑 정보 없음 - 수동 모드] 파일 업로드 시 자동 선택을 하지 않고 빈 상태로 대기합니다.
                             set({
-                                selectedHeaderRows: detectedHeaderRows,
-                                headerBaseRow: hBaseRow,
-                                headerHeight: hHeight,
-                                selectedSampleRows: detectedSampleRows,
-                                sampleBaseRow: sBaseRow,
-                                recordHeight: rh,
+                                selectedHeaderRows: new Set(),
+                                headerBaseRow: 0,
+                                headerHeight: 0,
+                                selectedSampleRows: new Set(),
+                                sampleBaseRow: 0,
+                                recordHeight: 0,
                                 selectedEtcRows: new Set(),
                                 etcBaseRow: 0,
                                 etcHeight: 0,
@@ -489,37 +434,15 @@ exports.useExcelStore = (0, zustand_1.create)((set, get) => ({
                             isStructureSet = true;
                         }
                     }
-                    // [매핑 정보도 없는 완전 최초] - 노이즈 제거 → 헤더 자동 탐지 → recordHeight 결정
+                    // [매핑 정보도 없는 완전 최초] - 수동 모드에서는 자동 선택을 하지 않고 빈 상태로 대기합니다.
                     if (!isStructureSet && newRows.length > 0) {
-                        const { headerStartRow, dataStartRow: rawDataStart, recordHeight: rh, syntheticHeaderNames } = (0, excelUtils_1.detectDataArea)(newRows);
-                        // 합성 헤더 처리: 헤더가 없는 경우 "컬럼1", "컬럼2"... 행을 데이터 앞에 삽입
-                        let dataStartRow = rawDataStart;
-                        let hBaseRow = headerStartRow;
-                        if (syntheticHeaderNames !== null) {
-                            const syntheticRow = {};
-                            syntheticHeaderNames.forEach((name, i) => { syntheticRow[String(i)] = name; });
-                            newRows = [syntheticRow, ...newRows];
-                            dataStartRow = rawDataStart + 1; // 삽입으로 인해 모든 인덱스 +1
-                            hBaseRow = 0; // 합성 헤더는 0번부터 시작
-                            // allData·allOriginalData에도 합성 헤더 반영
-                            set((prev) => ({
-                                allData: [syntheticRow, ...prev.allData],
-                                allOriginalData: [{ ...syntheticRow }, ...prev.allOriginalData],
-                            }));
-                        }
-                        const defaultHeaderRows = new Set();
-                        for (let i = hBaseRow; i < dataStartRow; i++)
-                            defaultHeaderRows.add(i);
-                        const defaultSampleRows = new Set();
-                        for (let i = dataStartRow; i < dataStartRow + rh && i < newRows.length; i++)
-                            defaultSampleRows.add(i);
                         set({
-                            selectedHeaderRows: defaultHeaderRows,
-                            headerBaseRow: hBaseRow,
-                            headerHeight: Math.max(defaultHeaderRows.size, 1),
-                            selectedSampleRows: defaultSampleRows,
-                            sampleBaseRow: dataStartRow,
-                            recordHeight: rh,
+                            selectedHeaderRows: new Set(),
+                            headerBaseRow: 0,
+                            headerHeight: 0,
+                            selectedSampleRows: new Set(),
+                            sampleBaseRow: 0,
+                            recordHeight: 0,
                             selectedEtcRows: new Set(),
                             etcBaseRow: 0,
                             etcHeight: 0,
