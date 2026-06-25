@@ -645,82 +645,10 @@ exports.useExcelStore = (0, zustand_1.create)((set, get) => ({
         });
     },
     handleRowClick: (rowIndex) => {
-        const { mode } = get();
-        if (mode === "HEADER") {
-            set((prev) => {
-                const next = new Set(prev.selectedHeaderRows);
-                if (next.has(rowIndex)) {
-                    next.delete(rowIndex);
-                }
-                else {
-                    next.add(rowIndex);
-                }
-                const sorted = Array.from(next).sort((a, b) => a - b);
-                const newHeaderBaseRow = sorted.length > 0 ? sorted[0] : prev.headerBaseRow;
-                const newHeaderHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0;
-                const nextCells = new Set(prev.selectedHeaderCells);
-                nextCells.forEach((id) => {
-                    if (id.startsWith(`${rowIndex}-`))
-                        nextCells.delete(id);
-                });
-                return {
-                    selectedHeaderRows: next,
-                    headerBaseRow: newHeaderBaseRow,
-                    headerHeight: newHeaderHeight,
-                    selectedHeaderCells: nextCells,
-                };
-            });
-        }
-        else if (mode === "DATA") {
-            set((prev) => {
-                const next = new Set(prev.selectedSampleRows);
-                if (next.has(rowIndex))
-                    next.delete(rowIndex);
-                else
-                    next.add(rowIndex);
-                const sorted = Array.from(next).sort((a, b) => a - b);
-                const newSampleBaseRow = sorted.length > 0 ? sorted[0] : prev.sampleBaseRow;
-                const newRecordHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0;
-                return {
-                    selectedSampleRows: next,
-                    sampleBaseRow: newSampleBaseRow,
-                    recordHeight: newRecordHeight,
-                };
-            });
-        }
-        else if (mode === "ETC") {
-            set((prev) => {
-                const next = new Set(prev.selectedEtcRows);
-                if (next.has(rowIndex))
-                    next.delete(rowIndex);
-                else
-                    next.add(rowIndex);
-                const sorted = Array.from(next).sort((a, b) => a - b);
-                const newEtcBaseRow = sorted.length > 0 ? sorted[0] : prev.etcBaseRow;
-                const newEtcHeight = sorted.length > 0 ? sorted[sorted.length - 1] - sorted[0] + 1 : 0;
-                return {
-                    selectedEtcRows: next,
-                    etcBaseRow: newEtcBaseRow,
-                    etcHeight: newEtcHeight,
-                };
-            });
-        }
+        // 자동화 전용 모드: 수동 클릭 비활성화
     },
     handleHeaderCellClick: (rowIndex, colIndex) => {
-        const { mode } = get();
-        if (mode !== "HEADER")
-            return;
-        const cellId = `${rowIndex}-${colIndex}`;
-        set((prev) => {
-            const next = new Set(prev.selectedHeaderCells);
-            if (next.has(cellId)) {
-                next.delete(cellId);
-            }
-            else {
-                next.add(cellId);
-            }
-            return { selectedHeaderCells: next };
-        });
+        // 자동화 전용 모드: 수동 클릭 비활성화
     },
     handleConfirmMapping: () => {
         const { allData, selectedHeaderRows, selectedSampleRows, selectedEtcRows, headerBaseRow, sampleBaseRow, etcBaseRow, selectedHeaderCells, fileInfo, } = get();

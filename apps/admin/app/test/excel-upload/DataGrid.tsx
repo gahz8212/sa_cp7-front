@@ -497,32 +497,35 @@ export function DataGrid() {
       )}
       <div className="flex gap-2 p-2 border rounded mb-4 justify-between items-center bg-gray-50/50">
         <div className="flex items-center gap-6 ml-2">
-          <div className="flex gap-2">
-            <Button
-              variant={mode === "HEADER" ? "primary" : "secondary"}
-              onClick={() => setMode("HEADER")}
-              size="sm"
-            >
-              헤더 선택
-            </Button>
-            <Button
-              variant={mode === "DATA" ? "primary" : "secondary"}
-              onClick={() => setMode("DATA")}
-              size="sm"
-            >
-              데이터 선택
-            </Button>
-            <Button
-              variant={mode === "ETC" ? "primary" : "secondary"}
-              onClick={() => setMode("ETC")}
-              size="sm"
-            >
-              기타 선택
-            </Button>
-            <Button variant="secondary" onClick={resetSelection} size="sm">
-              선택 해제
-            </Button>
-          </div>
+          {/* 자동화 전용 모드: 수동 선택 버튼 숨김 */}
+          {false && (
+            <div className="flex gap-2">
+              <Button
+                variant={mode === "HEADER" ? "primary" : "secondary"}
+                onClick={() => setMode("HEADER")}
+                size="sm"
+              >
+                헤더 선택
+              </Button>
+              <Button
+                variant={mode === "DATA" ? "primary" : "secondary"}
+                onClick={() => setMode("DATA")}
+                size="sm"
+              >
+                데이터 선택
+              </Button>
+              <Button
+                variant={mode === "ETC" ? "primary" : "secondary"}
+                onClick={() => setMode("ETC")}
+                size="sm"
+              >
+                기타 선택
+              </Button>
+              <Button variant="secondary" onClick={resetSelection} size="sm">
+                선택 해제
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
