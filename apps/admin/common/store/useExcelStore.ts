@@ -3,9 +3,8 @@ import axios from "axios"
 
 export type SelectionMode = "HEADER" | "DATA" | "ETC" | null
 
+import type { CellType, Signature } from "./excelUtils"
 import {
-  CellType,
-  Signature,
   rowToValues,
   getCellType,
   isStringOnlyRow,
@@ -16,9 +15,8 @@ import {
   detectDataArea,
 } from "./excelUtils"
 
+export type { CellType, Signature }
 export {
-  CellType,
-  Signature,
   rowToValues,
   getCellType,
   isStringOnlyRow,
