@@ -94,9 +94,8 @@ function DraggableBadge({ col, disabled }: { col: any; disabled: boolean }) {
     >
       <Badge
         variant={getBadgeVariant(col.dataType)}
-        className={`${!disabled ? "cursor-pointer shadow-sm hover:shadow-md" : ""} ${
-          col.required ? "ring-2 ring-red-500/50" : ""
-        } ${isSelected ? "ring-4 ring-blue-500 animate-pulse scale-110 z-10 transition-transform" : ""}`}
+        className={`${!disabled ? "cursor-pointer shadow-sm hover:shadow-md" : ""} ${col.required ? "ring-2 ring-red-500/50" : ""
+          } ${isSelected ? "ring-4 ring-blue-500 animate-pulse scale-110 z-10 transition-transform" : ""}`}
         title={col.description}
       >
         {col.name} {col.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
@@ -145,9 +144,8 @@ function DraggableMappedBadge({ col, onCancel }: { col: any; onCancel: () => voi
       <Badge
         variant={getBadgeVariant(col.dataType)}
         size="sm"
-        className={`shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent ${
-          col.required ? "ring-2 ring-red-500/50" : ""
-        }`}
+        className={`shadow-md transition-[background-color,color,transform] duration-200 hover:scale-105 active:scale-95 hover:bg-gray-500 hover:text-white border-transparent ${col.required ? "ring-2 ring-red-500/50" : ""
+          }`}
         title="드래그하여 이동하거나 더블 클릭하여 매핑 해제"
         onDoubleClick={(e) => {
           e.stopPropagation()
@@ -333,15 +331,15 @@ export function DataGrid() {
 
   // 타입 에러 체크(hasTypeError) 로직은 프론트엔드 성능을 위해 제거하고 백엔드로 위임합니다.
   const hasTypeError = false
-  ;[
-    allData,
-    mappingResult,
-    sampleBaseRow,
-    targetColumns,
-    schemaLookup,
-    lastContentRowIndex,
-    columnCount,
-  ]
+    ;[
+      allData,
+      mappingResult,
+      sampleBaseRow,
+      targetColumns,
+      schemaLookup,
+      lastContentRowIndex,
+      columnCount,
+    ]
 
   const hasHeaderSelected = selectedHeaderRows.size > 0
 
@@ -602,7 +600,7 @@ export function DataGrid() {
                     style={{
                       left: 0,
                       top: 0,
-                      animation: "cursor-move 4s infinite ease-in-out",
+                      animation: "cursor-move 8s infinite ease-in-out",
                     }}
                   >
                     <svg
@@ -618,20 +616,28 @@ export function DataGrid() {
                       />
                     </svg>
                   </div>
-
-                  <div className="flex gap-1 items-center h-7 px-1.5 text-[9px]  bg-gray-100 rounded border border-gray-200">
-                    <span className="text-left p-1 bg-blue-500 text-black-500 rounded">
+                  <div className="flex gap-1 items-center h-7 px-1.5 text-[9px] bg-gray-100 rounded border border-gray-200">
+                    {/* 1번 가상 버튼 */}
+                    <div
+                      className="text-left p-1 text-[8.5px] rounded transition-colors font-medium cursor-default"
+                      style={{ animation: "row-btn-1 8s infinite ease-in-out" }}
+                    >
                       헤더 선택
-                    </span>
-                    <span className="text-left p-1 bg-gray-300 text-black-500 rounded">
+                    </div>
+
+                    {/* 2번 가상 버튼 */}
+                    <div
+                      className="text-left p-1 text-[8.5px] rounded transition-colors font-medium cursor-default"
+                      style={{ animation: "row-btn-2 8s infinite ease-in-out" }}
+                    >
                       데이터 선택
-                    </span>
+                    </div>
                   </div>
 
                   {/* 1번 가상 행 */}
                   <div
-                    className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 bg-white rounded border border-gray-200 transition-colors"
-                    style={{ animation: "row-fill-1 4s infinite ease-in-out" }}
+                    className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 rounded border border-gray-200 transition-colors"
+                    style={{ animation: "row-fill-1 8s infinite ease-in-out" }}
                   >
                     <span className="w-6 text-center text-gray-400 font-bold border-r pr-1">1</span>
                     <span className="flex-grow pl-1 text-gray-500 font-medium">클릭!</span>
@@ -639,8 +645,8 @@ export function DataGrid() {
 
                   {/* 2번 가상 행 */}
                   <div
-                    className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 bg-white rounded border border-gray-200 transition-colors"
-                    style={{ animation: "row-fill-2 4s infinite ease-in-out" }}
+                    className="flex gap-1 items-center h-7 px-1.5 text-[9px] text-gray-600 rounded border border-gray-200 transition-colors"
+                    style={{ animation: "row-fill-2 8s infinite ease-in-out" }}
                   >
                     <span className="w-6 text-center text-gray-400 font-bold border-r pr-1">2</span>
                     <span className="flex-grow pl-1 text-gray-500 font-medium">클릭!</span>
@@ -666,35 +672,60 @@ export function DataGrid() {
                     2. 행 색상 하이라이트 타이밍 조절 (@keyframes row-fill-1 / row-fill-2)
                        - 마우스가 클릭된 상태에서 아래로 지나갈 때 각 행의 배경색이 노란색(rgba)으로 채워지는 시점을 조절합니다.
                        - rgba(254, 240, 138, 0.7) 대신 다른 색상 코드를 넣어 헤더(노랑), 데이터(초록) 등의 드래그 효과를 시뮬레이션할 수 있습니다.
-                  */
+                   */
                   @keyframes cursor-move {
-                    0% { transform: translate(15px, 15px)  }
-                    10% { transform: translate(15px, 15px) scale(0.8);; }
+                    0% { transform: translate(15px, 15px) scale(1); }
+                    /* 1번 가상 버튼(헤더 선택)으로 이동 및 클릭 */
+                    10% { transform: translate(15px, 15px) scale(1); }
+                    15% { transform: translate(15px, 15px) scale(0.8); }
                     20% { transform: translate(15px, 15px) scale(1); }
-                    30% { transform: translate(15px, 42px); }
-                    40% { transform: translate(15px, 42px) scale(0.8); }
-                    50% { transform: translate(15px, 42px) scale(1.0); }
-                    60% { transform: translate(15px, 72px) scale(0.8); }
+                    /* 1번 가상 행(행 번호 1 근처)으로 이동 및 클릭 */
+                    30% { transform: translate(15px, 42px) scale(1); }
+                    35% { transform: translate(15px, 42px) scale(0.8); }
+                    40% { transform: translate(15px, 42px) scale(1); }
+                    /* 2번 가상 버튼(데이터 선택)으로 이동 및 클릭 */
+                    50% { transform: translate(85px, 12px) scale(1); }
+                    55% { transform: translate(85px, 12px) scale(0.8); }
+                    60% { transform: translate(85px, 12px) scale(1); }
+                    /* 2번 가상 행(행 번호 2 근처)으로 이동 및 클릭 */
                     70% { transform: translate(15px, 72px) scale(1); }
-                    // 80% { transform: translate(15px, 42px); }
-                    90% { transform: translate(15px, 15px); }
-                    100% { transform: translate(15px, 15px); }
+                    75% { transform: translate(15px, 72px) scale(0.8); }
+                    80% { transform: translate(15px, 72px) scale(1); }
+                    /* 시작 위치로 복귀 */
+                    90% { transform: translate(15px, 15px) scale(1); }
+                    100% { transform: translate(15px, 15px) scale(1); }
+                  }
+                  @keyframes row-btn-1 {
+                    0% { background-color: #e5e7eb; color: #374151; }
+                    14.9% { background-color: #e5e7eb; color: #374151; }
+                    15% { background-color: #3b82f6; color: #ffffff; }
+                    89.9% { background-color: #3b82f6; color: #ffffff; }
+                    90% { background-color: #e5e7eb; color: #374151; }
+                    100% { background-color: #e5e7eb; color: #374151; }
+                  }
+                  @keyframes row-btn-2 {
+                    0% { background-color: #e5e7eb; color: #374151; }
+                    54.9% { background-color: #e5e7eb; color: #374151; }
+                    55% { background-color: #3b82f6; color: #ffffff; }
+                    89.9% { background-color: #3b82f6; color: #ffffff; }
+                    90% { background-color: #e5e7eb; color: #374151; }
+                    100% { background-color: #e5e7eb; color: #374151; }
                   }
                   @keyframes row-fill-1 {
-                    0% { background-color: #ffffff; }
-                    28% { background-color: #ffffff; }
-                    55% { background-color: rgba(254, 240, 138, 0.7); }
-                    80% { background-color: rgba(254, 240, 138, 0.7); }
-                    95% { background-color: #ffffff; }
-                    100% { background-color: #ffffff; }
+                    0% { background-color: #f3f4f6; }
+                    34.9% { background-color: #f3f4f6; }
+                    35% { background-color: #fef08a; } /* 노란 바탕 */
+                    89.9% { background-color: #fef08a; }
+                    90% { background-color: #f3f4f6; }
+                    100% { background-color: #f3f4f6; }
                   }
                   @keyframes row-fill-2 {
-                    0% { background-color: #ffffff; }
-                    58% { background-color: #ffffff; }
-                    75% { background-color: rgba(254, 240, 138, 0.7); }
-                    85% { background-color: rgba(254, 240, 138, 0.7); }
-                    95% { background-color: #ffffff; }
-                    100% { background-color: #ffffff; }
+                    0% { background-color: #f3f4f6; }
+                    74.9% { background-color: #f3f4f6; }
+                    75% { background-color: #86efac; } /* 녹색 바탕 */
+                    89.9% { background-color: #86efac; }
+                    90% { background-color: #f3f4f6; }
+                    100% { background-color: #f3f4f6; }
                   }
                 `,
                   }}
@@ -707,11 +738,10 @@ export function DataGrid() {
         <div className="flex items-center gap-2">
           <div className="mx-2 border-l h-6" />
           <Button
-            className={`shadow-md transition-all active:scale-95 ${
-              isCompleteButtonDisabled
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-red-600 hover:bg-red-700 text-white"
-            }`}
+            className={`shadow-md transition-all active:scale-95 ${isCompleteButtonDisabled
+              ? "bg-gray-400 cursor-not-allowed"
+              : "bg-red-600 hover:bg-red-700 text-white"
+              }`}
             onClick={onCompleteClick}
             disabled={isCompleteButtonDisabled}
           >
@@ -722,11 +752,10 @@ export function DataGrid() {
       <div className="mt-6 flex flex-col">
         {/* 백엔드 시스템 컬럼 (D&D Source 영역) - 매핑 완료 시 스르륵 사라짐 */}
         <div
-          className={`transition-all duration-500 ease-in-out ${
-            isMappingConfirmed
-              ? "max-h-0 opacity-0 mb-0 overflow-hidden"
-              : "max-h-[500px] opacity-100 mb-4 overflow-visible"
-          }`}
+          className={`transition-all duration-500 ease-in-out ${isMappingConfirmed
+            ? "max-h-0 opacity-0 mb-0 overflow-hidden"
+            : "max-h-[500px] opacity-100 mb-4 overflow-visible"
+            }`}
         >
           <div
             className={`p-4 border rounded-lg transition-colors ${hasHeaderSelected ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
@@ -812,12 +841,13 @@ export function DataGrid() {
                               <span className="text-[8.5px] text-yellow-900 font-bold">성명</span>
 
                               <div
-                                className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center scale-0 whitespace-nowrap transition-transform"
+                                className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white font-bold flex flex-col items-center justify-center scale-0 whitespace-nowrap transition-transform"
                                 style={{
                                   animation: "mapped-badge-scale-1 4s infinite ease-in-out",
                                 }}
                               >
-                                이름 *
+                                <span className="text-[7.5px] leading-tight">이름 *</span>
+                                <span className="text-[6.5px] opacity-80 leading-none">성명</span>
                               </div>
                             </div>
                           </div>
@@ -882,12 +912,13 @@ export function DataGrid() {
                               <span className="text-[8.5px] text-yellow-900 font-bold">성명</span>
 
                               <div
-                                className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center scale-0 whitespace-nowrap transition-transform"
+                                className="absolute top-0 bottom-0 left-0 right-0 bg-blue-500 text-white font-bold flex flex-col items-center justify-center scale-0 whitespace-nowrap transition-transform"
                                 style={{
                                   animation: "mapped-badge-scale-2 4s infinite ease-in-out",
                                 }}
                               >
-                                이름 *
+                                <span className="text-[7.5px] leading-tight">이름 *</span>
+                                <span className="text-[6.5px] opacity-80 leading-none">성명</span>
                               </div>
                             </div>
                           </div>
@@ -903,23 +934,25 @@ export function DataGrid() {
                       dangerouslySetInnerHTML={{
                         __html: `
                       @keyframes map-cursor-move-1 {
-                        0%   { transform: translate(5px, 5px) scale(1); }
+                        0%   { transform: translate(25px, 20px) scale(1); }
                         15%  { transform: translate(25px, 20px) scale(1); }
                         22%  { transform: translate(25px, 20px) scale(0.75); }
-                        52%  { transform: translate(110px, 20px) scale(0.75); }
-                        60%  { transform: translate(110px, 20px) scale(1); }
-                        85%  { transform: translate(5px, 5px) scale(1); }
-                        100% { transform: translate(5px, 5px) scale(1); }
+                        52%  { transform: translate(150px, 20px) scale(0.75); }
+                        60%  { transform: translate(150px, 20px) scale(1); }
+                        85%  { transform: translate(25px, 20px) scale(1); }
+                        100% { transform: translate(25px, 20px) scale(1); }
                       }
                       
                       @keyframes badge-state-1 {
-                        0%   { opacity: 1; }
-                        12%  { opacity: 0.5; }
-                        52%  { opacity: 0.5; }
-                        60%  { opacity: 0.2; }
-                        85%  { opacity: 0.2; }
-                        90%  { opacity: 1; }
-                        100% { opacity: 1; }
+                        0%   { transform: translate(0, 0); opacity: 1; z-index: 10; }
+                        15%  { transform: translate(0, 0); opacity: 1; z-index: 20; }
+                        22%  { transform: translate(0, 0); opacity: 1; z-index: 20; }
+                        52%  { transform: translate(150px, 0); opacity: 1; z-index: 20; }
+                        60%  { transform: translate(150px, 0); opacity: 1; z-index: 20; }
+                        61%  { transform: translate(150px, 0); opacity: 0; z-index: 10; }
+                        85%  { transform: translate(0, 0); opacity: 0; z-index: 10; }
+                        90%  { transform: translate(0, 0); opacity: 1; z-index: 10; }
+                        100% { transform: translate(0, 0); opacity: 1; z-index: 10; }
                       }
                       
                       @keyframes mapped-badge-scale-1 {
@@ -1086,11 +1119,11 @@ export function DataGrid() {
                       const absoluteRowIndex = row?.rowIndex ?? rowIndex + startRowIndex
                       const backendError = mappedCol
                         ? (validationErrors || []).find(
-                            (err: any) =>
-                              err.rowIndex === absoluteRowIndex &&
-                              (err.columnCode === mappedCol.name ||
-                                err.columnCode === mappedCol.frontColumn),
-                          )
+                          (err: any) =>
+                            err.rowIndex === absoluteRowIndex &&
+                            (err.columnCode === mappedCol.name ||
+                              err.columnCode === mappedCol.frontColumn),
+                        )
                         : null
 
                       const isInvalid = !!backendError // 백엔드 검증 에러
@@ -1236,9 +1269,8 @@ export function DataGrid() {
         {activeCol ? (
           <Badge
             variant={getBadgeVariant(activeCol.dataType)}
-            className={`cursor-grabbing shadow-lg scale-105 min-w-[100px] justify-center ${
-              activeCol.required ? "ring-2 ring-red-500/50" : ""
-            }`}
+            className={`cursor-grabbing shadow-lg scale-105 min-w-[100px] justify-center ${activeCol.required ? "ring-2 ring-red-500/50" : ""
+              }`}
           >
             {activeCol.name}{" "}
             {activeCol.required && <span className="text-red-500 font-bold ml-0.5">*</span>}
