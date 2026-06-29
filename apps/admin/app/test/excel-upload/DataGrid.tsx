@@ -275,8 +275,8 @@ export function DataGrid() {
     const currentRecordHeight = recordHeight || 1
     if (validationErrors && validationErrors.length > 0) {
       validationErrors.forEach((err: any) => {
-        const localIdx = err.rowIndex - startRowIndex
-        if (localIdx >= sampleBaseRow) {
+        const localIdx = allData.findIndex((r) => r.rowIndex === err.rowIndex)
+        if (localIdx !== -1 && localIdx >= sampleBaseRow) {
           const recordStartIdx =
             sampleBaseRow +
             Math.floor((localIdx - sampleBaseRow) / currentRecordHeight) * currentRecordHeight
@@ -299,7 +299,6 @@ export function DataGrid() {
     lastContentRowIndex,
     columnCount,
     validationErrors,
-    startRowIndex,
   ])
 
   // 오류 데이터 필터 변경 시 페이지를 1로 초기화 (빈 화면 방지)
